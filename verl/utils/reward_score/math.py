@@ -13,8 +13,53 @@
 # limitations under the License.
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 
+import re
+
+# Patterns for GPQA multiple choice questions
+ANSWER_PATTERN_MULTICHOICE = r"(?i)Answer[ \t]*:[ \t]*\$?([A-D])\$?"
+BOXED_PATTERN_MULTICHOICE = r"\\boxed\{([A-D])\}"
+JSON_ANSWER_PATTERN_MULTICHOICE = r'"answer"\s*:\s*"([A-D])"'
+
+
+def _extract_choice_answer(model_output: str) -> str:
+    """Extract choice answer (A, B, C, D) from model output."""
+    # First try to match Answer: format
+    match = re.search(ANSWER_PATTERN_MULTICHOICE, model_output)
+    if match:
+        return match.group(1)
+    
+    # Try to match \boxed{} format
+    match = re.search(BOXED_PATTERN_MULTICHOICE, model_output)
+    if match:
+        return match.group(1)
+    
+    # Try to match JSON answer format: "answer": "C"
+    match = re.search(JSON_ANSWER_PATTERN_MULTICHOICE, model_output)
+    if match:
+        return match.group(1)
+    
+    return None
+
+
+def _is_choice_question(ground_truth: str) -> bool:
+    """Check if the ground truth is a single choice (A, B, C, D)."""
+    return ground_truth.strip() in ['A', 'B', 'C', 'D']
+
 
 def compute_score(solution_str, ground_truth) -> float:
+    # First check if this is a multiple choice question
+    if _is_choice_question(ground_truth):
+        # Try to extract choice answer first
+        extracted_choice = _extract_choice_answer(solution_str)
+        if extracted_choice == ground_truth.strip():
+            return 1.0
+        
+        # If choice matching fails (score is 0), fall back to math verification
+        # This handles cases where the answer might be expressed mathematically
+        # but the ground truth is still a choice letter
+        pass
+    
+    # Perform standard math verification for non-choice questions or when choice matching fails
     retval = 0.0
     try:
         string_in_last_boxed = last_boxed_only_string(solution_str)

@@ -39,8 +39,6 @@ python3 -m recipe.dapo.main_dapo \
     data.truncation='error' \
     custom_reward_function.path=../verl/health_bench/healthbench_reward_fn.py \
     custom_reward_function.name=compute_score_batched \
-    +val_custom_reward_function.path=../verl/verl/utils/reward_score/math_verify_batch.py \
-    +val_custom_reward_function.name=compute_score_batched \
     reward_model.reward_manager=batch \
     actor_rollout_ref.model.path=${MODEL_PATH} \
     actor_rollout_ref.actor.optim.lr=1e-6 \

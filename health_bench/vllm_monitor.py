@@ -49,7 +49,7 @@ class VLLMService:
     weight: float = 0.0
 
 class VLLMMonitor:
-    def __init__(self, base_urls: List[str], model_name: str = "8001vllm"):
+    def __init__(self, base_urls: List[str], model_name: str = "default"):
         self.services = [VLLMService(url=url.strip()) for url in base_urls if url.strip()]
         self.model_name = model_name
         self.session = None
@@ -139,7 +139,7 @@ class VLLMMonitor:
     def parse_metric_value(self, metrics_text: str, metric_name: str) -> int:
         """Parse specified metric value from Prometheus format metrics text"""
         try:
-            # Find metric lines, support labeled format like: vllm:num_requests_running{engine="0",model_name="8001vllm"} 5.0
+            # Find metric lines, support labeled format like: vllm:num_requests_running{engine="0",model_name="default"} 5.0
             # Or simple format: vllm:num_requests_running 5.0
             pattern = rf'^{re.escape(metric_name)}(?:\{{[^}}]*\}})?\s+([0-9.]+)'
             matches = re.findall(pattern, metrics_text, re.MULTILINE)
@@ -378,7 +378,7 @@ def parse_urls(url_string: str) -> List[str]:
 async def main():
     # Get VLLM service URL list from environment variables
     VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8001/v1")
-    VLLM_MODEL = os.getenv("VLLM_MODEL", "8001vllm")
+    VLLM_MODEL = os.getenv("VLLM_MODEL", "default")
     
     # Parse URLs
     urls = parse_urls(VLLM_BASE_URL)

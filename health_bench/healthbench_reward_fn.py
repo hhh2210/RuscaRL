@@ -154,7 +154,7 @@ class VLLMSampler(SamplerBase):
         # Perform load statistics once during initialization
         self._update_loads()
         
-        self.model = model or os.getenv("VLLM_MODEL", "8001vllm")
+        self.model = model or os.getenv("VLLM_MODEL", "default")
         self.system_message = system_message
         self.temperature = temperature if temperature is not None else float(os.getenv("VLLM_TEMPERATURE", "0.7"))
         self.max_tokens = max_tokens if max_tokens is not None else int(os.getenv("VLLM_MAX_TOKENS", "2048"))
