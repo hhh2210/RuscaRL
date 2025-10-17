@@ -3,8 +3,8 @@ from typing import List, Dict, Any
 
 def math_verify(model_response: str, parameters: Dict[str, Any]) -> bool:
     """
-    Verify model response using mathematical verification logic, using both math.py and math_dapo.py methods
-    Returns True if either verification method passes
+    Verify model response using mathematical verification logic
+    Priority: math_verify.py first, then fallback to dapo verification if failed
     
     Args:
         model_response: Model's response
@@ -14,28 +14,39 @@ def math_verify(model_response: str, parameters: Dict[str, Any]) -> bool:
         bool: Verification result, True indicates correct, False indicates incorrect
     """
     
+    from verl.utils.reward_score.math_verify import compute_score as compute_score_verify
     from verl.utils.reward_score.math_dapo import compute_score as compute_score_dapo
-    from verl.utils.reward_score.math import compute_score as compute_score_math
     
     # Extract answer from dictionary
     answer = parameters.get("answer")
     if answer is None:
         raise ValueError("math_verify: parameters dict must contain 'answer' key")
     
-    # Use math_dapo's strict boxed verification mode
-    result_dapo = compute_score_dapo(model_response, answer, strict_box_verify=True)
-    if isinstance(result_dapo, dict):
+    # Priority 1: Use math_verify.py verification
+    math_verify_passed = False
+    try:
+        score_verify = compute_score_verify(model_response, answer)
+        if score_verify > 0.5:
+            math_verify_passed = True
+            return True
+    except Exception as e:
+        print(f"math_verify: Verify verification failed with error: {e}")
+    
+    # Priority 2: Fallback to dapo verification if verify verification failed
+    try:
+        result_dapo = compute_score_dapo(model_response, answer, strict_box_verify=True)
         acc_dapo = result_dapo.get("acc", False)
-    else:
-        acc_dapo = result_dapo > 0.5
-    
-    # If dapo verification passes, return True directly
-    if acc_dapo:
-        return True
-    
-    # If dapo verification fails, use math.py verification method
-    score_math = compute_score_math(model_response, answer)
-    return score_math > 0.5
+        
+        # If math_verify failed but dapo passed, print the response and answer
+        if not math_verify_passed and acc_dapo:
+            print(f"math_verify: math_verify failed but dapo passed")
+            print(f"  Response: {model_response}")
+            print(f"  Answer: {answer}")
+        
+        return acc_dapo
+    except Exception as e:
+        print(f"math_dapo: Dapo verification failed with error: {e}")
+        return False
 
 
 def word_count_range(model_response: str, parameters: Dict[str, Any]) -> bool:

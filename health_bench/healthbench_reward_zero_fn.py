@@ -579,7 +579,7 @@ def calculate_score(rubric_items: List[RubricItem], grading_response_list: List[
         if grading_response["criteria_met"]
     )
     overall_score = achieved_points / total_possible_points
-    return overall_score
+    return max(0,overall_score)
 
 def grade_single_example(
     prompt: List[Dict[str, str]], 
