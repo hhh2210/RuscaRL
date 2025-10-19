@@ -6,7 +6,7 @@ MODEL_PATH="model/${MODEL_NAME}"
 
 DATA_NAME="math"
 TRAIN_DATA="data/math_rubric_data/dapo-math-17k.parquet"
-EVAL_DATA="[data/math_val/aime24.parquet,data/math_val/aime25.parquet,data/math_val/amc23.parquet,data/math_val/math500.parquet]"
+EVAL_DATA="[data/math_rubric_data/aime24.parquet,data/math_rubric_data/aime25.parquet,data/math_rubric_data/amc23.parquet,data/math_rubric_data/math500.parquet,data/math_rubric_data/hmmt25.parquet]"
 # Experiment configuration
 EXPERIMENT_NAME="${MODEL_NAME}_${DATA_NAME}_verify"
 

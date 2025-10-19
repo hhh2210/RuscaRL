@@ -747,22 +747,23 @@ def compute_score_batched(data_sources: List[str], solution_strs: List[str], gro
     Args:
         data_sources: List of dataset names
         solution_strs: List of model-generated responses
-        ground_truths: Not used
+        ground_truths: List of ground truth answers (will be included in the result)
         extra_infos: List containing prompt and reward_model information
         max_workers_per_url: Concurrency per URL, defaults to MAX_CONCURRENT_WORKERS
         
     Returns:
-        List[Dict[str, Any]]: List of dictionaries containing score and acc fields
+        List[Dict[str, Any]]: List of dictionaries containing score, acc, and ground_truth fields
     """
     batch_data = list(zip(data_sources, solution_strs, ground_truths, extra_infos))
     scores = batch_compute_scores(batch_data, max_workers_per_url=max_workers_per_url)
     
     # Convert scores to dictionary format containing score and acc fields
     results = []
-    for score in scores:
+    for i, score in enumerate(scores):
         results.append({
             "score": score,
-            "acc": score > 0.5  # Convert score to accuracy (boolean value)
+            "acc": score > 0.5,  # Convert score to accuracy (boolean value)
+            "ground_truth": ground_truths[i]  # Add ground_truth to the result
         })
     
     return results

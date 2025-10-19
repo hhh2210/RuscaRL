@@ -71,7 +71,7 @@ python3 -m recipe.dapo.main_dapo \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.enable_graded_system_prompt=False \
     actor_rollout_ref.rollout.graded_system_prompt_rule=step_sigmoid \
-    actor_rollout_ref.rollout.graded_system_prompt_step_sigmoid_start_point=0.15 \
+    actor_rollout_ref.rollout.graded_system_prompt_step_sigmoid_start_point=0.1 \
     actor_rollout_ref.rollout.graded_system_prompt_step_sigmoid_steepness=200 \
     actor_rollout_ref.rollout.graded_system_prompt_add_base_when_zero=False \
     actor_rollout_ref.rollout.max_num_batched_tokens=${max_num_batched_tokens} \
@@ -100,4 +100,4 @@ python3 -m recipe.dapo.main_dapo \
     trainer.rollout_data_dir="./log/rollout_log/${EXPERIMENT_NAME}" \
     trainer.validation_data_dir="./log/validation_log/${EXPERIMENT_NAME}" \
     trainer.total_training_steps=500 \
-    trainer.total_epochs=5 $@
+    trainer.total_epochs=10 $@

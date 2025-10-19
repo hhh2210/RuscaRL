@@ -109,15 +109,15 @@ class BatchDAPORewardManager:
                 reward = score
 
             # Apply overlong penalty if configured
-            if self.overlong_buffer_cfg is not None and self.overlong_buffer_cfg.get("enable", False):
-                overlong_buffer_len = self.overlong_buffer_cfg.get("len", 0)
+            if self.overlong_buffer_cfg is not None and self.overlong_buffer_cfg.enable:
+                overlong_buffer_len = self.overlong_buffer_cfg.len
                 expected_len = self.max_resp_len - overlong_buffer_len
                 exceed_len = length - expected_len
-                overlong_penalty_factor = self.overlong_buffer_cfg.get("penalty_factor", 1.0)
+                overlong_penalty_factor = self.overlong_buffer_cfg.penalty_factor
                 overlong_reward = min(-exceed_len / overlong_buffer_len * overlong_penalty_factor, 0)
                 reward += overlong_reward
                 
-                if self.overlong_buffer_cfg.get("log", False):
+                if self.overlong_buffer_cfg.log:
                     reward_extra_info["overlong_reward"].append(overlong_reward)
                     reward_extra_info["overlong"].append(overlong_reward < 0)
 
@@ -134,11 +134,11 @@ class BatchDAPORewardManager:
                 print("[ground_truth]", ground_truth)
                 print("[score]", scores[i])
                 # Print overlong information if enabled
-                if self.overlong_buffer_cfg is not None and self.overlong_buffer_cfg.get("enable", False) and self.overlong_buffer_cfg.get("log", False):
-                    overlong_buffer_len = self.overlong_buffer_cfg.get("len", 0)
+                if self.overlong_buffer_cfg is not None and self.overlong_buffer_cfg.enable and self.overlong_buffer_cfg.log:
+                    overlong_buffer_len = self.overlong_buffer_cfg.len
                     expected_len = self.max_resp_len - overlong_buffer_len
                     exceed_len = length - expected_len
-                    overlong_penalty_factor = self.overlong_buffer_cfg.get("penalty_factor", 1.0)
+                    overlong_penalty_factor = self.overlong_buffer_cfg.penalty_factor
                     overlong_reward = min(-exceed_len / overlong_buffer_len * overlong_penalty_factor, 0)
                     print(f"[overlong_info] length={length}, expected_len={expected_len}, exceed_len={exceed_len}, overlong_reward={overlong_reward}")
                 already_printed[data_source] = already_printed.get(data_source, 0) + 1
