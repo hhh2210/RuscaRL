@@ -158,6 +158,7 @@ def process_dataset(data_list: List[Dict[str, Any]], split: str) -> datasets.Dat
 def main():
     import argparse
     parser = argparse.ArgumentParser()
+    #https://huggingface.co/datasets/Idavidrein/gpqa
     parser.add_argument('--input_file', default='raw_data/GPQA-D/gpqa_diamond.csv')
     parser.add_argument('--output_dir', default='data/gpqa_diamond')
     parser.add_argument('--hdfs_dir', default=None)

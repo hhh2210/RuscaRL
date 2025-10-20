@@ -74,8 +74,9 @@ def process_dataset(data_list: List[Dict[str, Any]], split: str) -> datasets.Dat
 def main():
     import argparse
     parser = argparse.ArgumentParser()
+    #https://huggingface.co/datasets/HuggingFaceH4/MATH-500
     parser.add_argument('--input_file', default='raw_data/Math500/math500.jsonl')
-    parser.add_argument('--output_file', default='data/Math500/math500-rubrics.parquet')
+    parser.add_argument('--output_file', default='data/Math500/math500.parquet')
     args = parser.parse_args()
     
     # Load data

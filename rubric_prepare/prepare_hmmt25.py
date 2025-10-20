@@ -76,8 +76,9 @@ def process_dataset(data_list: List[Dict[str, Any]], split: str) -> datasets.Dat
 def main():
     import argparse
     parser = argparse.ArgumentParser()
+    #https://huggingface.co/datasets/MathArena/hmmt_feb_2025
     parser.add_argument('--input_file', default='raw_data/HMMT/hmmt25.parquet')
-    parser.add_argument('--output_file', default='data/HMMT/hmmt25-rubrics.parquet')
+    parser.add_argument('--output_file', default='data/HMMT/hmmt25.parquet')
     args = parser.parse_args()
     
     # Load data
