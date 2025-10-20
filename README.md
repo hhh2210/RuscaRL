@@ -28,13 +28,13 @@
 - 📝 [Citation](#citation)
 - 📧 [Contact](#contact)
 
-## 🔥 Updates
+<h2 id="updates">🔥 Updates</h2>
 
 - `[Oct 15, 2025]` 🔧 Added support for reward functions with hybrid rule-based verification!
 - `[Sep 26, 2025]` 💻 Released RuscaRL code!
 - `[Aug 23, 2025]` 📄 Released RuscaRL paper on arXiv!
 
-## 📖 Overview
+<h2 id="overview">📖 Overview</h2>
 
 Recent advances in Large Language Models (LLMs) have underscored the potential of Reinforcement Learning (RL) to facilitate the emergence of reasoning capabilities. Despite the encouraging results, a fundamental dilemma persists as RL improvement relies on learning from high-quality samples, yet the exploration for such samples remains bounded by the inherent limitations of LLMs. This, in effect, creates an undesirable cycle in which *what cannot be explored cannot be learned*.
 
@@ -52,7 +52,7 @@ RuscaRL introduces **checklist-style rubrics** as:
 1. 🧭 **Explicit scaffolding for exploration** during rollout generation, where different rubrics are provided as external guidance within task instructions to steer diverse high-quality responses. This guidance is gradually decayed over time, encouraging the model to internalize the underlying reasoning patterns;
 2. 💎 **Verifiable rewards for exploitation** during model training, where we can obtain robust LLM-as-a-Judge scores using rubrics as references, enabling effective RL on general reasoning tasks.
 
-## 🗂️ Dataset
+<h2 id="dataset">🗂️ Dataset</h2>
 
 Data is stored in parquet format, example file paths:
 
@@ -125,7 +125,7 @@ python rubric_prepare/prepare_researchqa.py
 ```
 
 
-## ⚙️ Installation
+<h2 id="installation">⚙️ Installation</h2>
 
 ### Clone Repository
 
@@ -157,7 +157,7 @@ After completing the verl basic installation, execute in the project root direct
 pip install --no-deps -e .
 ```
 
-## 🧩 Configuration
+<h2 id="configuration">🧩 Configuration</h2>
 
 ### Recommended Deployment
 
@@ -265,7 +265,7 @@ actor_rollout_ref:
   - Smaller values (e.g., 10): gradual decay
   - Larger values (e.g., 125): rapid decay (recommended setting)
 
-## ⚡ Training
+<h2 id="training">⚡ Training</h2>
 
 Start RuscaRL training:
 
@@ -279,7 +279,7 @@ Start Rubric-based RL training:
 bash RuscaRL_example/Qwen2.5-7B-Instruct/healthbench_RL.sh
 ```
 
-## 📝 Citation
+<h2 id="citation">📝 Citation</h2>
 
 If you find RuscaRL useful in your research, please cite our paper:
 
@@ -292,7 +292,7 @@ If you find RuscaRL useful in your research, please cite our paper:
 }
 ```
 
-## 📧 Contact
+<h2 id="contact">📧 Contact</h2>
 
 For questions, suggestions, or collaborations, please feel free to: imzhouyang@zju.edu.cn
 
