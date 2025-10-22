@@ -640,7 +640,7 @@ def grade_single_example(
         
         # Call grading model
         retry_count = 0
-        max_retries = 10
+        max_retries = 3
         while retry_count < max_retries:
             sampler_response = grader_model(messages)
             # Get response_text from SamplerResponse object
@@ -963,7 +963,7 @@ def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]],
             
             # Call grading model
             retry_count = 0
-            max_retries = 10
+            max_retries = 3
             while retry_count < max_retries:
                 sampler_response = grader(messages)
                 grading_response_dict = parse_json_to_dict(sampler_response.response_text)
