@@ -269,6 +269,8 @@ actor_rollout_ref:
 
 Start RuscaRL training:
 
+> **⚠️ Important Note**: Before starting training, if you are using Qwen2.5 series models, please copy the `chat_template.jinja` file from the project root directory to the corresponding model path to override the default system prompt "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."
+
 ```bash
 bash RuscaRL_example/Qwen2.5-7B-Instruct/healthbench_RuscaRL.sh
 ```
