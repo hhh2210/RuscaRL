@@ -229,10 +229,13 @@ def main():
         
         # Determine file suffix
         suffix = "_original" if version_name == "original" else ""
+        # Determine output directory per version
+        version_output_dir = os.path.join(args.output_dir, 'ori') if version_name == 'original' else args.output_dir
+        os.makedirs(version_output_dir, exist_ok=True)
         
         # Save as parquet format
-        train_dataset.to_parquet(os.path.join(args.output_dir, f'train{suffix}.parquet'))
-        eval_dataset.to_parquet(os.path.join(args.output_dir, f'eval{suffix}.parquet'))
+        train_dataset.to_parquet(os.path.join(version_output_dir, f'train{suffix}.parquet'))
+        eval_dataset.to_parquet(os.path.join(version_output_dir, f'val{suffix}.parquet'))
         
         print(f"  {version_name.capitalize()} version saved:")
         print(f"    Training set size: {len(train_dataset)}")
