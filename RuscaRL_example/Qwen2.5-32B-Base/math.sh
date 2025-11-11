@@ -95,7 +95,7 @@ python3 -m recipe.dapo.main_dapo \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=${infer_ppo_max_token_len} \
     actor_rollout_ref.ref.fsdp_config.param_offload=${offload} \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=${sp_size} \
-    custom_reward_function.path=../verl/health_bench/healthbench_reward_fn.py \
+    custom_reward_function.path=health_bench/healthbench_reward_fn.py \
     custom_reward_function.name=compute_score_batched \
     reward_model.reward_manager=batch_dapo \
     reward_model.overlong_buffer.enable=${enable_overlong_buffer} \

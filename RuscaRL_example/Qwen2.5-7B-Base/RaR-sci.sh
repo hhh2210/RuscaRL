@@ -43,7 +43,7 @@ python3 -m recipe.dapo.main_dapo \
     reward_model.overlong_buffer.enable=${enable_overlong_buffer} \
     reward_model.overlong_buffer.len=${overlong_buffer_len} \
     reward_model.overlong_buffer.penalty_factor=${overlong_penalty_factor} \
-    custom_reward_function.path=../verl/health_bench/healthbench_reward_fn.py \
+    custom_reward_function.path=health_bench/healthbench_reward_fn.py \
     custom_reward_function.name=compute_score_batched \
     reward_model.reward_manager=batch_dapo \
     actor_rollout_ref.model.path=${MODEL_PATH} \
