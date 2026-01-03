@@ -131,3 +131,12 @@ rawdata/
 math_rubric_data/numina_math_cot_rubrics_results.jsonl
 math_rubric_data/math_hard_rubrics_results.jsonl
 GPQA_rubrics/scp_mcq_results.jsonl
+
+# local installers / wheels (large binaries)
+cudnn-local-repo-ubuntu2204-9.10.2_1.0-1_amd64.deb
+flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl.1
+flashinfer_python-0.2.2.post1+cu124torch2.6-cp38-abi3-linux_x86_64.whl
+flashinfer_python-0.2.2.post1+cu124torch2.6-cp38-abi3-linux_x86_64.whl.1
+flash_attn-2.8.1+cu12torch2.8cxx11abiFALSE-cp312-cp312-linux_x86_64.whl
+flash_attn-2.8.1+cu12torch2.8cxx11abiFALSE-cp312-cp312-linux_x86_64.whl.1

@@ -123,6 +123,9 @@ python rubric_prepare/prepare_rar.py
 
 # Process ResearchQA data
 python rubric_prepare/prepare_researchqa.py
+
+# Process VerInstruct (soft constraints only; convert to rubrics)
+python rubric_prepare/prepare_verinstruct.py
 ```
 
 

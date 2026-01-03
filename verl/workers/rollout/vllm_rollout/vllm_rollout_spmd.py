@@ -90,7 +90,7 @@ def _generate_rubric_system_message(rubric_items: List[RubricItem], rubric_ratio
         tuple: (system_message, actual_rubric_count) - System prompt and actual number of displayed rubrics
     """
     if not rubric_items:
-        return "You are a helpful medical assistant.", 0
+        return "You are a helpful assistant.", 0
     
     # Select criteria to display based on different rules
     if rule_type == "math_linear":
@@ -134,7 +134,7 @@ def _generate_rubric_system_message(rubric_items: List[RubricItem], rubric_ratio
     
     # 🔧 If no rubric is selected, return base system prompt and 0
     if not selected_rubric_items:
-        return "You are a helpful medical assistant.", 0
+        return "You are a helpful assistant.", 0
     
     positive_points = []
     negative_points = []
