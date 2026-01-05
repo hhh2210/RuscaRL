@@ -131,7 +131,7 @@ rawdata/
 math_rubric_data/numina_math_cot_rubrics_results.jsonl
 math_rubric_data/math_hard_rubrics_results.jsonl
 GPQA_rubrics/scp_mcq_results.jsonl
-
+/tensorboard_log
 # local installers / wheels (large binaries)
 cudnn-local-repo-ubuntu2204-9.10.2_1.0-1_amd64.deb
 flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl

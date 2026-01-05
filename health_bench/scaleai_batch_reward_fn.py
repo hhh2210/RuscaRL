@@ -387,14 +387,6 @@ class VLLMSampler(SamplerBase):
                 self._pack_message(self.system_message, "system")
             ] + message_list
 
-        payload = {
-            "model": self.model,
-            "messages": message_list,
-            "temperature": 0.7,
-            "top_k": 20,
-            "top_p": 0.8
-        }
-
         trial = 0
         current_url = None
         while True:
@@ -402,6 +394,28 @@ class VLLMSampler(SamplerBase):
                 # Select URL
                 current_url = self._get_next_url()
                 self._throttle(current_url)
+                strict_env = os.getenv("VLLM_STRICT_OPENAI_COMPAT", "auto").strip().lower()
+                if strict_env in ("1", "true", "yes", "y", "on"):
+                    strict_openai_compat = True
+                elif strict_env in ("0", "false", "no", "n", "off"):
+                    strict_openai_compat = False
+                else:
+                    # Auto: remote OpenAI-compatible endpoints often reject non-standard fields (e.g., top_k).
+                    strict_openai_compat = not getattr(self, "metrics_enabled", True)
+
+                payload = {
+                    "model": self.model,
+                    "messages": message_list,
+                    "temperature": 0.7,
+                    "top_p": 0.8,
+                }
+                if not strict_openai_compat:
+                    payload["top_k"] = 20
+                # DashScope compatibility: some "thinking" models require explicitly disabling thinking
+                # for non-streaming calls, otherwise the API returns HTTP 400.
+                if "dashscope.aliyuncs.com/compatible-mode" in current_url:
+                    payload.setdefault("enable_thinking", False)
+
                 response = requests.post(
                     f"{current_url}/chat/completions",
                     headers=self.headers,
@@ -445,6 +459,16 @@ class VLLMSampler(SamplerBase):
                                 retry_after_s = float(ra)
                             except Exception:
                                 retry_after_s = None
+                    elif status_code is not None and 400 <= int(status_code) < 500:
+                        # Non-retriable client errors (e.g., invalid payload for a strict OpenAI-compatible provider).
+                        # Fail fast to avoid wasting minutes on exponential backoff.
+                        try:
+                            resp_text = (resp.text or "").strip()
+                        except Exception:
+                            resp_text = ""
+                        if resp_text:
+                            print(f"Non-retriable HTTP {status_code} body: {resp_text[:800]}")
+                        raise
 
                 exception_backoff = min(2**trial, 300)  # Maximum wait time 300 seconds
                 sleep_s = exception_backoff
