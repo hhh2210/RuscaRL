@@ -196,6 +196,9 @@ http://localhost:8001/v1,http://localhost:8002/v1,http://localhost:8003/v1,http:
 **Note:**
 
 - `VLLM_BASE_URL` supports configuring multiple URLs, separated by commas, with load balancing implemented
+- For remote OpenAI-compatible judge endpoints that do not expose `/metrics` (e.g., DashScope), set `VLLM_METRICS_ENABLED=false` and provide an API key via `VLLM_API_KEY` (or `OPENAI_API_KEY` / `DASHSCOPE_API_KEY`).
+- If your judge provider enforces RPM/QPS limits, set `MIN_INTERVAL_S` to throttle requests **per URL** (coordinated across concurrent threads in a single process). Use a positive value for a fixed minimum interval (e.g., `MIN_INTERVAL_S=0.11` for ~545 RPM). A negative value enables jittered intervals (e.g., `MIN_INTERVAL_S=-0.1` uses a random 0–0.1s interval per request), which helps smooth bursts but may still be too fast for strict providers—prefer a positive value if you need a hard cap.
+- If you still see 429s, reduce judge concurrency: set `GRADER_MAX_WORKERS` (total threads used for LLM grading in each process), or pass a smaller `max_workers_per_url` via `compute_score_batched(..., max_workers_per_url=...)`.
 
 ### Reward Function Configuration
 

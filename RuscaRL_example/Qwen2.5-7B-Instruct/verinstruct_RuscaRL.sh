@@ -11,6 +11,11 @@ DATA_VAL_PATH="data/verinstruct/verinstruct_val.parquet"
 EXPERIMENT_NAME="Qwen2.5-7B-Instruct_verinstruct_RuscaRL"
 
 export WANDB_MODE=online
+export WANDB_API_KEY=fa10cc989ac62a8b525f11a00ac96a4639fcc803
+export VLLM_USE_V1=1
+export VLLM_DISABLE_CUSTOM_ALL_REDUCE=1
+export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
 set -x
 
 python3 -m verl.trainer.main_ppo \
@@ -60,7 +65,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','tensorboard'] \
+    trainer.logger=['console','wandb'] \
     trainer.project_name='verl_grpo_general' \
     trainer.experiment_name=${EXPERIMENT_NAME} \
     trainer.n_gpus_per_node=4 \

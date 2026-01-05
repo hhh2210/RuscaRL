@@ -161,9 +161,41 @@ class VLLMSampler(SamplerBase):
         self.timeout = timeout if timeout is not None else int(os.getenv("VLLM_TIMEOUT", "120"))
         self.enable_thinking = enable_thinking
         self.filter_think_tags = filter_think_tags
+
+        metrics_enabled = os.getenv("VLLM_METRICS_ENABLED", "auto").strip().lower()
+        if metrics_enabled == "auto":
+            metrics_enabled = "true" if any(url.startswith(p) for p in ("http://localhost", "http://127.0.0.1")) else "false"
+        self.metrics_enabled = metrics_enabled in ("1", "true", "yes", "y", "on")
+
+        # Rate limiting / throttling (important for remote OpenAI-compatible endpoints).
+        # - If MIN_INTERVAL_S > 0: enforce a fixed minimum interval between requests per URL.
+        # - If MIN_INTERVAL_S < 0: use a random jitter interval in [0, abs(MIN_INTERVAL_S)] per request (per URL).
+        # The throttle is applied per URL and coordinated across concurrent threads.
+        min_interval_env = os.getenv("MIN_INTERVAL_S", "0").strip()
+        try:
+            self.min_interval_s = float(min_interval_env)
+        except Exception:
+            self.min_interval_s = 0.0
+        self._min_interval_is_jitter = self.min_interval_s < 0
+        self._min_interval_abs_s = abs(self.min_interval_s)
+        # Next allowed request timestamp per URL (monotonic clock).
+        self._next_request_ts_by_url = {url: 0.0 for url in self.base_urls}
+        try:
+            import threading
+            self._throttle_lock = threading.Lock()
+        except Exception:
+            self._throttle_lock = None
+
+        api_key = (
+            os.getenv("VLLM_API_KEY")
+            or os.getenv("OPENAI_API_KEY")
+            or os.getenv("DASHSCOPE_API_KEY")
+            or ""
+        ).strip()
+        auth_header = f"Bearer {api_key}" if api_key else "Bearer dummy"
         self.headers = {
             "Content-Type": "application/json",
-            "Authorization": "Bearer dummy"
+            "Authorization": auth_header,
         }
         
         print(f"VLLMSampler initialization completed, configured {len(self.base_urls)} URLs: {self.base_urls}")
@@ -179,12 +211,44 @@ class VLLMSampler(SamplerBase):
         print(f"Available servers: {len(available_urls)}/{len(self.base_urls)}")
         print("========================\n")
 
+    def _throttle(self, url: str) -> None:
+        interval_abs_s = getattr(self, "_min_interval_abs_s", 0.0)
+        if interval_abs_s <= 0:
+            return
+
+        is_jitter = getattr(self, "_min_interval_is_jitter", False)
+        lock = getattr(self, "_throttle_lock", None)
+
+        now = time.monotonic()
+        if lock is None:
+            next_ts = self._next_request_ts_by_url.get(url, 0.0)
+            scheduled_ts = max(now, next_ts)
+            interval_s = random.uniform(0.0, interval_abs_s) if is_jitter else interval_abs_s
+            self._next_request_ts_by_url[url] = scheduled_ts + interval_s
+            wait_s = scheduled_ts - now
+            if wait_s > 0:
+                time.sleep(wait_s)
+            return
+
+        with lock:
+            now = time.monotonic()
+            next_ts = self._next_request_ts_by_url.get(url, 0.0)
+            scheduled_ts = max(now, next_ts)
+            interval_s = random.uniform(0.0, interval_abs_s) if is_jitter else interval_abs_s
+            self._next_request_ts_by_url[url] = scheduled_ts + interval_s
+            wait_s = scheduled_ts - now
+
+        if wait_s > 0:
+            time.sleep(wait_s)
+
     def _filter_think_tags(self, text: str) -> str:
         """Remove <think></think> tags and their content"""
         return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
 
     def _get_url_load(self, url: str) -> dict:
         """Get load information for a single URL"""
+        if not getattr(self, "metrics_enabled", True):
+            return {'running': 0, 'waiting': 0, 'total': 0, 'available': True}
         try:
             # Build metrics endpoint URL
             if url.endswith('/v1'):
@@ -337,6 +401,7 @@ class VLLMSampler(SamplerBase):
             try:
                 # Select URL
                 current_url = self._get_next_url()
+                self._throttle(current_url)
                 response = requests.post(
                     f"{current_url}/chat/completions",
                     headers=self.headers,
@@ -367,10 +432,28 @@ class VLLMSampler(SamplerBase):
                 # Request failed, also decrease virtual load
                 if current_url and current_url in self.virtual_loads:
                     self.virtual_loads[current_url] = max(0, self.virtual_loads[current_url] - 1)
-                
+
+                status_code = None
+                retry_after_s = None
+                resp = getattr(e, "response", None)
+                if resp is not None:
+                    status_code = getattr(resp, "status_code", None)
+                    if status_code == 429:
+                        ra = resp.headers.get("Retry-After")
+                        if ra:
+                            try:
+                                retry_after_s = float(ra)
+                            except Exception:
+                                retry_after_s = None
+
                 exception_backoff = min(2**trial, 300)  # Maximum wait time 300 seconds
+                sleep_s = exception_backoff
+                if retry_after_s is not None:
+                    sleep_s = max(sleep_s, retry_after_s)
+                sleep_s += random.uniform(0.0, 0.25)
+
                 print(
-                    f"Request failed (URL: {current_url}), retrying attempt {trial} after {exception_backoff} seconds",
+                    f"Request failed (URL: {current_url}, status={status_code}), retrying attempt {trial} after {sleep_s:.2f} seconds",
                     str(e),
                 )
                 if isinstance(e, requests.exceptions.ConnectionError):
@@ -398,7 +481,7 @@ class VLLMSampler(SamplerBase):
                     print("================================\n")
                 elif isinstance(e, requests.exceptions.Timeout):
                     print(f"Timeout error: Request exceeded {self.timeout} seconds")
-                time.sleep(exception_backoff)
+                time.sleep(sleep_s)
                 trial += 1
                 # Remove retry limit to implement infinite retries
 
@@ -836,9 +919,18 @@ def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]],
     for url in grader.base_urls:
         grader.virtual_loads[url] = 0
     
-    # Fixed total concurrency to 10000, no longer dynamically changing based on URL count
-    actual_max_workers = 10000
-    print(f"Configured {url_count} URLs, fixed total concurrency: {actual_max_workers}")
+    # Total concurrency: max_workers_per_url × available URL count (or override via GRADER_MAX_WORKERS).
+    try:
+        max_workers_override = int(os.getenv("GRADER_MAX_WORKERS", "0").strip() or "0")
+    except Exception:
+        max_workers_override = 0
+
+    effective_url_count = len(available_urls) if available_urls else max(1, url_count)
+    per_url_workers = max(1, int(max_workers_per_url))
+    actual_max_workers = max_workers_override if max_workers_override > 0 else (per_url_workers * effective_url_count)
+    print(
+        f"Configured {url_count} URLs (available={effective_url_count}), max_workers_per_url={per_url_workers}, total_concurrency={actual_max_workers}"
+    )
     
     # Separate rule and LLM tasks
     rule_tasks = []
