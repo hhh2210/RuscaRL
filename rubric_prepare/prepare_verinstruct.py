@@ -198,7 +198,10 @@ def _make_map_fn(data_source: str, max_constraints: int, points: float):
         prompt = _to_prompt_messages(prompt_text)
 
         soft_constraints = _extract_soft_constraints(example, max_constraints=max_constraints)
-        rubrics = [RubricItem(criterion=c, points=points, tags={}) for c in soft_constraints]
+        # NOTE: Avoid empty struct columns when writing parquet (pyarrow cannot write
+        # a struct with zero child fields). Keep tags non-empty.
+        rubric_tags = {"verifier": "llm", "source": "verinstruct"}
+        rubrics = [RubricItem(criterion=c, points=points, tags=rubric_tags) for c in soft_constraints]
 
         reward_model = {
             "style": "rubric",
@@ -295,4 +298,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
