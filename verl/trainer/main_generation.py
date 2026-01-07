@@ -88,6 +88,11 @@ def main_task(config):
     )
     wg.init_model()
 
+    ckpt_path = config.model.get("ckpt_path", None)
+    if ckpt_path:
+        print(f"Loading FSDP checkpoint into rollout workers: {ckpt_path}")
+        wg.load_checkpoint(ckpt_path)
+
     total_samples = len(dataset)
     config_batch_size = config.data.batch_size
     num_batch = -(-total_samples // config_batch_size)

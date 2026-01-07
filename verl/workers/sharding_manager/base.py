@@ -19,8 +19,16 @@ from verl import DataProto
 
 
 class BaseShardingManager:
+    def __init__(self):
+        # Keep a consistent interface with other sharding managers that expose
+        # a `timing` dict (e.g. FSDP/VLLM reshard timing). For the no-op base
+        # manager, this simply stays empty.
+        self.timing = {}
+
     def __enter__(self):
-        pass
+        # Reset timing for each context scope to mimic other managers.
+        self.timing = {}
+        return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         pass

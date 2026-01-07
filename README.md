@@ -25,6 +25,7 @@
 - ⚙️ [Installation](#installation)
 - 🧩 [Configuration](#configuration)
 - ⚡ [Training](#training)
+- 🧪 [Evaluation (IFEval)](#evaluation-ifeval)
 - 📝 [Citation](#citation)
 - 📧 [Contact](#contact)
 
@@ -295,6 +296,60 @@ Start Rubric-based RL training:
 ```bash
 bash RuscaRL_example/Qwen2.5-7B-Instruct/healthbench_RL.sh
 ```
+
+<h2 id="evaluation-ifeval">🧪 Evaluation (IFEval)</h2>
+
+We provide a vLLM-based one-click script to generate IFEval responses and compute metrics.
+
+### 0) Clone IFEval repo (includes data)
+
+```bash
+git clone https://github.com/google-research/google-research.git /root/google-research
+```
+
+### 1) Install IFEval dependencies
+
+```bash
+pip install absl-py langdetect nltk immutabledict
+python - <<'PY'
+import nltk; nltk.download("punkt")
+PY
+```
+
+### 2) Generate + Evaluate (merged model)
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3 \
+scripts/ifeval_eval_vllm.sh \
+  --model /root/aicloud-data/merged_models/Qwen2.5-7B-Instruct_verinstruct_RuscaRL_step350 \
+  --responses /root/google-research/instruction_following_eval/data/input_response_data_ruscarl_step350.jsonl
+```
+
+### 3) (Optional) Merge FSDP ckpt + Evaluate
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3 \
+scripts/ifeval_eval_vllm.sh \
+  --ckpt-dir /root/aicloud-data/checkpoints/Qwen2.5-7B-Instruct_verinstruct_RuscaRL/global_step_350/actor \
+  --merge-target /root/aicloud-data/merged_models/Qwen2.5-7B-Instruct_verinstruct_RuscaRL_step350
+```
+
+### Outputs and Metric Mapping
+
+IFEval writes:
+- `eval_results_strict.jsonl`
+- `eval_results_loose.jsonl`
+
+Metric mapping:
+- **Pr(S)** = prompt-level (strict)
+- **Ins(S)** = instruction-level (strict)
+- **Pr(L)** = prompt-level (loose)
+- **Ins(L)** = instruction-level (loose)
+
+### Scripts
+
+- `scripts/ifeval_generate_vllm.py`: vLLM generation into IFEval jsonl
+- `scripts/ifeval_eval_vllm.sh`: merge (optional) + generate + evaluate
 
 <h2 id="citation">📝 Citation</h2>
 

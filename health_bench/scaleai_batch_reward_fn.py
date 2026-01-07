@@ -822,9 +822,22 @@ def compute_score(data_source: str, solution_str: str, ground_truth: str = None,
         # Extract data from extra_info
         prompt = extra_info.get("prompt", [])
         reward_model = extra_info.get("reward_model", {})
+        if reward_model is None:
+            return 0.0
+
+        # Normalize prompt / rubrics (handle numpy arrays from parquet)
+        if hasattr(prompt, "tolist"):
+            prompt = prompt.tolist()
+        if isinstance(prompt, tuple):
+            prompt = list(prompt)
+
         rubrics = reward_model.get("rubrics", [])
-        
-        if not prompt or not rubrics:
+        if hasattr(rubrics, "tolist"):
+            rubrics = rubrics.tolist()
+        if isinstance(rubrics, tuple):
+            rubrics = list(rubrics)
+
+        if prompt is None or len(prompt) == 0 or rubrics is None or len(rubrics) == 0:
             return 0.0
             
         # Rebuild rubrics

@@ -11,6 +11,11 @@ DATA_VAL_PATH="data/verinstruct/verinstruct_val.parquet"
 EXPERIMENT_NAME="Qwen2.5-7B-Instruct_verinstruct_RL"
 
 export WANDB_MODE=online
+# 从 .env 文件加载所有环境变量
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | grep -v '^$' | xargs)
+fi
+
 # Workaround for vLLM engine selection mismatch:
 # "Using V1 LLMEngine, but envs.VLLM_USE_V1=False."
 # Explicitly enable vLLM V1 engine to match vllm>=0.8 defaults.
@@ -36,6 +41,7 @@ python3 -m verl.trainer.main_ppo \
     data.truncation='error' \
     custom_reward_function.path=health_bench/scaleai_batch_reward_fn.py \
     custom_reward_function.name=compute_score_batched \
+    custom_reward_function.reward_kwargs.max_workers_per_url=16 \
     reward_model.reward_manager=batch \
     actor_rollout_ref.model.path=${MODEL_PATH} \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -68,14 +74,31 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','tensorboard'] \
+    trainer.logger=['console','wandb'] \
     trainer.project_name='verl_grpo_general' \
     trainer.experiment_name=${EXPERIMENT_NAME} \
+    trainer.default_local_dir="/root/aicloud-data/checkpoints/${EXPERIMENT_NAME}" \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
-    trainer.save_freq=20 \
+    trainer.save_freq=999999 \
     trainer.test_freq=5 \
     trainer.rollout_data_dir="./log/rollout_log/${EXPERIMENT_NAME}" \
     trainer.validation_data_dir="./log/validation_log/${EXPERIMENT_NAME}" \
     trainer.total_training_steps=350 \
     trainer.total_epochs=5 $@
+
+# 训练完成后的操作
+# TRAINING_EXIT_CODE=$?
+# if [ $TRAINING_EXIT_CODE -eq 0 ]; then
+#     echo "✅ 训练成功完成！准备关机..."
+#     echo "最终 checkpoint 保存在: /root/aicloud-data/checkpoints/${EXPERIMENT_NAME}"
+# else
+#     echo "❌ 训练失败，退出码: $TRAINING_EXIT_CODE"
+# fi
+
+# # 等待 10 秒，给用户取消的机会
+# echo "将在 10 秒后关闭服务器，按 Ctrl+C 取消..."
+# sleep 10
+
+# # 关闭服务器
+# sudo shutdown -h now

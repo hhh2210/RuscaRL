@@ -11,7 +11,11 @@ DATA_VAL_PATH="data/verinstruct/verinstruct_val.parquet"
 EXPERIMENT_NAME="Qwen2.5-7B-Instruct_verinstruct_RuscaRL"
 
 export WANDB_MODE=online
-export WANDB_API_KEY=fa10cc989ac62a8b525f11a00ac96a4639fcc803
+# 从 .env 文件加载所有环境变量
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | grep -v '^$' | xargs)
+fi
+
 export VLLM_USE_V1=1
 export VLLM_DISABLE_CUSTOM_ALL_REDUCE=1
 export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
@@ -29,6 +33,7 @@ python3 -m verl.trainer.main_ppo \
     data.truncation='error' \
     custom_reward_function.path=health_bench/scaleai_batch_reward_fn.py \
     custom_reward_function.name=compute_score_batched \
+    custom_reward_function.reward_kwargs.max_workers_per_url=16 \
     reward_model.reward_manager=batch \
     actor_rollout_ref.model.path=${MODEL_PATH} \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -44,9 +49,9 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.enable_graded_system_prompt=True \
     actor_rollout_ref.rollout.graded_system_prompt_rule=step_sigmoid \
@@ -62,18 +67,34 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.val_kwargs.top_k=20 \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
-    actor_rollout_ref.rollout.free_cache_engine=False \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='verl_grpo_general' \
     trainer.experiment_name=${EXPERIMENT_NAME} \
+    trainer.default_local_dir="/root/aicloud-data/checkpoints/${EXPERIMENT_NAME}" \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
-    trainer.save_freq=20 \
+    trainer.save_freq=999999 \
     trainer.test_freq=5 \
     trainer.rollout_data_dir="./log/rollout_log/${EXPERIMENT_NAME}" \
     trainer.validation_data_dir="./log/validation_log/${EXPERIMENT_NAME}" \
     trainer.total_training_steps=350 \
     trainer.total_epochs=5 $@
+
+# # 训练完成后的操作
+# TRAINING_EXIT_CODE=$?
+# if [ $TRAINING_EXIT_CODE -eq 0 ]; then
+#     echo "✅ 训练成功完成！准备关机..."
+#     echo "最终 checkpoint 保存在: /root/aicloud-data/checkpoints/${EXPERIMENT_NAME}"
+# else
+#     echo "❌ 训练失败，退出码: $TRAINING_EXIT_CODE"
+# fi
+
+# # 等待 10 秒，给用户取消的机会
+# echo "将在 10 秒后关闭服务器，按 Ctrl+C 取消..."
+# sleep 10
+
+# # 关闭服务器
+# sudo shutdown -h now

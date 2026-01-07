@@ -13,6 +13,9 @@ data:
 model:
   path: ~/models/Qwen2-7B-Instruct
   external_lib: null
+  # Optional: load an FSDP sharded checkpoint saved by verl (e.g. .../global_step_xxx/actor)
+  # Keep `model.path` pointing to the base HF model for tokenizer/config.
+  ckpt_path: null
 rollout:
   name: vllm
   mode: sync # sync: LLM, async: AsyncLLM
