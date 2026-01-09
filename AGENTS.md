@@ -1,5 +1,5 @@
 # 8*H800如何开启训练
-
+conda activate verl
 # 终端1：RL baseline，使用第一个 API key
 CUDA_VISIBLE_DEVICES=0,1,2,3 \
 RAY_PORT=6379 \
@@ -11,6 +11,21 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 \
 RAY_PORT=6380 \
 VLLM_API_KEY="sk-8065d51e783f4ad79c72c54079b7d19d" \
 bash RuscaRL_example/Qwen2.5-7B-Instruct/verinstruct_RuscaRL.sh
+
+# VerIF reward（仅 LLM judge，跳过 rule code）
+CUDA_VISIBLE_DEVICES=0,1,2,3 \
+RAY_PORT=6379 \
+VLLM_API_KEY="sk-7f9f79ef433c42eeb96a4aaa74b92aee" \
+bash RuscaRL_example/Qwen2.5-7B-Instruct/verinstruct_RL_verif.sh
+
+CUDA_VISIBLE_DEVICES=4,5,6,7 \
+RAY_PORT=6380 \
+VLLM_API_KEY="sk-8065d51e783f4ad79c72c54079b7d19d" \
+bash RuscaRL_example/Qwen2.5-7B-Instruct/verinstruct_RuscaRL_verif.sh
+
+# 数据对应关系
+# - verinstruct_RL.sh / verinstruct_RuscaRL.sh -> data/verinstruct (rubric 格式)
+# - verinstruct_*_verif.sh -> data/verinstruct_verif (VerIF checkers/functions 格式)
 
 # evalatuation
 ### RL baseline:

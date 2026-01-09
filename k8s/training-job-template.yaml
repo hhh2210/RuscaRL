@@ -1,0 +1,162 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ruscarl-training-EXPERIMENT_NAME
+  namespace: default
+spec:
+  # 失败重试次数
+  backoffLimit: 0
+  # 完成后保留时间（秒）
+  ttlSecondsAfterFinished: 86400  # 24小时
+  template:
+    metadata:
+      labels:
+        app: ruscarl-training
+        experiment: EXPERIMENT_NAME
+    spec:
+      restartPolicy: Never
+      # 如果使用节点选择器
+      # nodeSelector:
+      #   gpu: "true"
+      
+      containers:
+      - name: training
+        image: sz01.modelhub.asiai.cloud:6443/1987712963259152226-pro-2ed0fbff58434b9d/ruscarl-training:v1.0
+        imagePullPolicy: Always
+        
+        # GPU 资源请求
+        resources:
+          limits:
+            nvidia.com/gpu: "4"  # 使用 4 个 GPU
+            memory: "128Gi"
+            cpu: "32"
+          requests:
+            nvidia.com/gpu: "4"
+            memory: "64Gi"
+            cpu: "16"
+        
+        # 环境变量
+        env:
+        - name: EXPERIMENT_NAME
+          value: "EXPERIMENT_NAME"
+        - name: LEARNING_RATE
+          value: "LEARNING_RATE"
+        - name: GPU_MEMORY_UTIL
+          value: "GPU_MEMORY_UTIL"
+        - name: TENSOR_PARALLEL
+          value: "TENSOR_PARALLEL"
+        - name: ENABLE_RUSCARL
+          value: "ENABLE_RUSCARL"
+        - name: WANDB_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: wandb-secret
+              key: api-key
+        - name: VLLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: vllm-secret
+              key: api-key
+        - name: WANDB_MODE
+          value: "online"
+        - name: VLLM_USE_V1
+          value: "1"
+        - name: VLLM_DISABLE_CUSTOM_ALL_REDUCE
+          value: "1"
+        - name: RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES
+          value: "1"
+        - name: CUDA_DEVICE_ORDER
+          value: "PCI_BUS_ID"
+        
+        # 启动命令
+        command: ["/bin/bash"]
+        args:
+        - "-c"
+        - |
+          cd /workspace/RuscaRL
+          
+          # 使用环境变量运行训练
+          python3 -m verl.trainer.main_ppo \
+            algorithm.adv_estimator=grpo \
+            data.train_files=data/verinstruct/verinstruct_train.parquet \
+            data.val_files=data/verinstruct/verinstruct_val.parquet \
+            data.train_batch_size=64 \
+            data.max_prompt_length=4096 \
+            data.max_response_length=4096 \
+            data.filter_overlong_prompts=True \
+            data.truncation='error' \
+            custom_reward_function.path=health_bench/scaleai_batch_reward_fn.py \
+            custom_reward_function.name=compute_score_batched \
+            reward_model.reward_manager=batch \
+            actor_rollout_ref.model.path=/root/aicloud-fs/wangxuekang/model/Qwen2.5-7B-Instruct \
+            actor_rollout_ref.actor.optim.lr=${LEARNING_RATE} \
+            actor_rollout_ref.actor.optim.warmup_style=constant \
+            actor_rollout_ref.model.use_remove_padding=True \
+            actor_rollout_ref.actor.ppo_mini_batch_size=32 \
+            actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+            actor_rollout_ref.actor.use_kl_loss=True \
+            actor_rollout_ref.actor.kl_loss_coef=0.001 \
+            actor_rollout_ref.actor.kl_loss_type=low_var_kl \
+            actor_rollout_ref.actor.entropy_coeff=0 \
+            actor_rollout_ref.model.enable_gradient_checkpointing=True \
+            actor_rollout_ref.actor.fsdp_config.param_offload=True \
+            actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
+            actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
+            actor_rollout_ref.rollout.tensor_model_parallel_size=${TENSOR_PARALLEL} \
+            actor_rollout_ref.rollout.name=vllm \
+            actor_rollout_ref.rollout.gpu_memory_utilization=${GPU_MEMORY_UTIL} \
+            actor_rollout_ref.rollout.n=8 \
+            actor_rollout_ref.rollout.enable_graded_system_prompt=${ENABLE_RUSCARL} \
+            actor_rollout_ref.rollout.graded_system_prompt_rule=step_sigmoid \
+            actor_rollout_ref.rollout.graded_system_prompt_step_sigmoid_start_point=0.20 \
+            actor_rollout_ref.rollout.graded_system_prompt_step_sigmoid_steepness=125 \
+            actor_rollout_ref.rollout.graded_system_prompt_add_base_when_zero=False \
+            actor_rollout_ref.rollout.max_num_batched_tokens=16384 \
+            actor_rollout_ref.rollout.temperature=0.7 \
+            actor_rollout_ref.rollout.top_p=0.8 \
+            actor_rollout_ref.rollout.top_k=20 \
+            actor_rollout_ref.rollout.val_kwargs.temperature=0.7 \
+            actor_rollout_ref.rollout.val_kwargs.top_p=0.8 \
+            actor_rollout_ref.rollout.val_kwargs.top_k=20 \
+            actor_rollout_ref.rollout.val_kwargs.do_sample=True \
+            actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
+            actor_rollout_ref.rollout.free_cache_engine=False \
+            actor_rollout_ref.ref.fsdp_config.param_offload=True \
+            algorithm.use_kl_in_reward=False \
+            trainer.critic_warmup=0 \
+            trainer.logger=['console','wandb'] \
+            trainer.project_name='ruscarl_k8s_experiments' \
+            trainer.experiment_name=${EXPERIMENT_NAME} \
+            trainer.default_local_dir="/workspace/checkpoints/${EXPERIMENT_NAME}" \
+            trainer.n_gpus_per_node=4 \
+            trainer.nnodes=1 \
+            trainer.save_freq=999999 \
+            trainer.test_freq=-1 \
+            trainer.rollout_data_dir="/workspace/log/rollout_log/${EXPERIMENT_NAME}" \
+            trainer.validation_data_dir="/workspace/log/validation_log/${EXPERIMENT_NAME}" \
+            trainer.total_training_steps=350 \
+            trainer.total_epochs=5
+          
+          echo "Training completed with exit code: $?"
+        
+        # 挂载持久化存储
+        volumeMounts:
+        - name: model-storage
+          mountPath: /root/aicloud-fs
+          readOnly: true
+        - name: checkpoint-storage
+          mountPath: /workspace/checkpoints
+        - name: data-storage
+          mountPath: /workspace/data
+      
+      volumes:
+      - name: model-storage
+        # 根据你的存储配置调整
+        persistentVolumeClaim:
+          claimName: model-pvc
+      - name: checkpoint-storage
+        persistentVolumeClaim:
+          claimName: checkpoint-pvc
+      - name: data-storage
+        persistentVolumeClaim:
+          claimName: data-pvc

@@ -129,6 +129,15 @@ python rubric_prepare/prepare_researchqa.py
 python rubric_prepare/prepare_verinstruct.py
 ```
 
+### VerInstruct (VerIF reward format)
+
+For VerIF-style reward (checkers/functions in `reward_model.ground_truth`), use the VerIF-format parquet files:
+
+- `data/verinstruct_verif/verinstruct_verif_train.parquet`
+- `data/verinstruct_verif/verinstruct_verif_val.parquet`
+
+These are built from the raw THU-KEG/VerInstruct dataset and preserve the original `checkers` + `functions`.
+
 
 <h2 id="installation">⚙️ Installation</h2>
 
@@ -296,6 +305,24 @@ Start Rubric-based RL training:
 ```bash
 bash RuscaRL_example/Qwen2.5-7B-Instruct/healthbench_RL.sh
 ```
+
+Start VerInstruct training (rubric format):
+
+```bash
+bash RuscaRL_example/Qwen2.5-7B-Instruct/verinstruct_RL.sh
+bash RuscaRL_example/Qwen2.5-7B-Instruct/verinstruct_RuscaRL.sh
+```
+
+Start VerIF reward training (VerInstruct + checkers/functions):
+
+```bash
+bash RuscaRL_example/Qwen2.5-7B-Instruct/verinstruct_RL_verif.sh
+bash RuscaRL_example/Qwen2.5-7B-Instruct/verinstruct_RuscaRL_verif.sh
+```
+
+Notes:
+- `*_RL.sh` and `*_RuscaRL.sh` use rubric-format data in `data/verinstruct/`.
+- `*_verif.sh` uses VerIF-format data in `data/verinstruct_verif/`.
 
 <h2 id="evaluation-ifeval">🧪 Evaluation (IFEval)</h2>
 
