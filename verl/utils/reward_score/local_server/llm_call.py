@@ -1,5 +1,6 @@
 import os
 import re
+import time
 
 from .build_model import APIModel
 
@@ -102,11 +103,21 @@ def llm_extract(instruction, response, specific_prompt):
 
 
 def extract_score(text):
-    match = re.search(r'\[\[(\d+)\]\]', text)
-    try:
+    if not text:
+        return None
+    match = re.search(r"\[\[\s*([01])\s*\]\]", text)
+    if match:
         return int(match.group(1))
-    except:
+    # Fallback: accept a leading 0/1 token if brackets are missing.
+    match = re.search(r"^\s*([01])\b", text)
+    if match:
+        return int(match.group(1))
+    # Fallback for yes/no in Chinese if it's unambiguous.
+    if "是" in text and "否" not in text:
+        return 1
+    if "否" in text and "是" not in text:
         return 0
+    return None
 
 
 def llm_score(instruction, response, checkers):
@@ -129,9 +140,22 @@ def llm_score(instruction, response, checkers):
     data = [
         {"role": "user", "content": prompt}
     ]
-    response = generate_chat(data, max_tokens=4096)
-    score = extract_score(response)
-    return score
+    max_retries = int(os.getenv("VERIF_LLM_MAX_RETRIES", "2"))
+    backoff_s = float(os.getenv("VERIF_LLM_RETRY_BACKOFF", "0"))
+
+    strict_prompt = prompt + "\n\n请只输出[[0]]或[[1]]，不要输出其他内容。"
+    messages = data
+
+    for attempt in range(max_retries + 1):
+        response = generate_chat(messages, max_tokens=4096)
+        score = extract_score(response)
+        if score is not None:
+            return score
+        # Retry with a stricter format instruction.
+        messages = [{"role": "user", "content": strict_prompt}]
+        if backoff_s > 0:
+            time.sleep(backoff_s * (attempt + 1))
+    return 0
 
 
 
