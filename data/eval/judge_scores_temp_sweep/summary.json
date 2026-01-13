@@ -1,0 +1,50 @@
+{
+  "input": "data/eval/judge_bias_eval_10_with_qwen3-8b.jsonl",
+  "judges": {
+    "qwen-flash_t0.0": {
+      "n": 10,
+      "by_source": {
+        "healthbench": {
+          "n": 5,
+          "mean": 0.6642491302581461,
+          "pass_rate@0.5": 0.6
+        },
+        "verinstruct_verif": {
+          "n": 5,
+          "mean": 0.4,
+          "pass_rate@0.5": 0.4
+        }
+      }
+    },
+    "qwen-flash_t0.7": {
+      "n": 10,
+      "by_source": {
+        "healthbench": {
+          "n": 5,
+          "mean": 0.5589859723634093,
+          "pass_rate@0.5": 0.4
+        },
+        "verinstruct_verif": {
+          "n": 5,
+          "mean": 0.4,
+          "pass_rate@0.5": 0.4
+        }
+      }
+    },
+    "qwen-flash_t1.0": {
+      "n": 10,
+      "by_source": {
+        "healthbench": {
+          "n": 5,
+          "mean": 0.702958807677501,
+          "pass_rate@0.5": 0.6
+        },
+        "verinstruct_verif": {
+          "n": 5,
+          "mean": 0.4,
+          "pass_rate@0.5": 0.4
+        }
+      }
+    }
+  }
+}
