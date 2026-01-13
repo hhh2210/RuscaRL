@@ -3,6 +3,11 @@
 # Model configuration
 MODEL_PATH="model/Qwen2.5-7B-Instruct"
 
+# Chat template (recommended for Qwen2.5): load from repo root at runtime.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+CHAT_TEMPLATE_PATH="${CHAT_TEMPLATE_PATH:-${REPO_ROOT}/chat_template.jinja}"
+
 # Experiment configuration
 EXPERIMENT_NAME="Qwen2.5-7B-Instruct_healthbench_RuscaRL"
 
@@ -22,6 +27,7 @@ python3 -m verl.trainer.main_ppo \
     custom_reward_function.name=compute_score_batched \
     reward_model.reward_manager=batch \
     actor_rollout_ref.model.path=${MODEL_PATH} \
+    actor_rollout_ref.model.custom_chat_template_path="${CHAT_TEMPLATE_PATH}" \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.optim.warmup_style=constant \
     actor_rollout_ref.model.use_remove_padding=True \

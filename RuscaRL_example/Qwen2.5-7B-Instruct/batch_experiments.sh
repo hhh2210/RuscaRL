@@ -35,6 +35,11 @@ if [ -f .env ]; then
     export $(grep -v '^#' .env | grep -v '^$' | xargs)
 fi
 
+# Chat template (recommended for Qwen2.5): load from repo root at runtime.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+CHAT_TEMPLATE_PATH="${CHAT_TEMPLATE_PATH:-${REPO_ROOT}/chat_template.jinja}"
+
 export WANDB_MODE=online
 export VLLM_USE_V1=1
 export VLLM_DISABLE_CUSTOM_ALL_REDUCE=1
@@ -100,6 +105,7 @@ run_experiment() {
         custom_reward_function.name=compute_score_batched \
         reward_model.reward_manager=batch \
         actor_rollout_ref.model.path=${MODEL_PATH} \
+        actor_rollout_ref.model.custom_chat_template_path="${CHAT_TEMPLATE_PATH}" \
         actor_rollout_ref.actor.optim.lr=${lr} \
         actor_rollout_ref.actor.optim.warmup_style=constant \
         actor_rollout_ref.model.use_remove_padding=True \

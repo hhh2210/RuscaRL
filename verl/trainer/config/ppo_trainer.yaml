@@ -103,6 +103,9 @@ actor_rollout_ref:
     # Custom chat template for the model.
     custom_chat_template: null
 
+    # Path to a Jinja chat template file.
+    custom_chat_template_path: null
+
     # Whether to use shared memory (SHM) for accelerating the loading of model weights
     use_shm: false
 

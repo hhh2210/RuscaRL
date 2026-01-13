@@ -26,6 +26,7 @@ actor_rollout_ref:
   model:
     path: ~/models/deepseek-llm-7b-chat
     custom_chat_template: null
+    custom_chat_template_path: null
     external_lib: null
     override_config:
       model_config: {}

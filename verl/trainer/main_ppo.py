@@ -88,6 +88,15 @@ class TaskRunner:
         # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
+        # Optional: override chat template at runtime (useful for Qwen2.5, etc.)
+        from verl.utils.chat_template import load_custom_chat_template
+
+        custom_chat_template = load_custom_chat_template(config.actor_rollout_ref.model)
+        if custom_chat_template is not None:
+            tokenizer.chat_template = custom_chat_template
+            if processor is not None:
+                processor.chat_template = custom_chat_template
+
         # Version validation for vllm.
         if config.actor_rollout_ref.rollout.name in ["vllm"]:
             from verl.utils.vllm_utils import is_version_ge

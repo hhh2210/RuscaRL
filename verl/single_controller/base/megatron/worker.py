@@ -67,11 +67,13 @@ class MegatronWorker(Worker):
             self.tokenizer = tokenizer_or_path
             self.processor = tokenizer_or_path
 
-        if self.config.model.get("custom_chat_template", None) is not None:
+        from verl.utils.chat_template import load_custom_chat_template
+
+        custom_chat_template = load_custom_chat_template(self.config.model)
+        if custom_chat_template is not None:
+            self.tokenizer.chat_template = custom_chat_template
             if self.processor is not None:
-                self.processor.chat_template = self.config.model.custom_chat_template
-            else:
-                self.tokenizer.chat_template = self.config.model.custom_chat_template
+                self.processor.chat_template = custom_chat_template
 
         # Step 2: get the hf
         hf_config = AutoConfig.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
