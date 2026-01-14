@@ -12,7 +12,7 @@ except ImportError:
     OpenAI = None
 from dotenv import load_dotenv
 import importlib
-from health_bench.vllm_sampler import VLLMSampler
+from health_bench.vllm_sampler import VLLMSampler, VLLMDataInspectionError
 
 # Import verification function module
 from verl.utils.reward_score.rule_fn import get_verification_function, VERIFICATION_FUNCTIONS
@@ -71,6 +71,11 @@ class SamplerResponse:
     response_text: str
     response_metadata: dict
     actual_queried_message_list: List[Dict[str, str]]
+
+
+# Optional debug capture for judge responses (used by small eval scripts).
+# Enabled when env `RUSCARL_CAPTURE_JUDGE_TEXT=1`.
+_LAST_JUDGE_DEBUG: Dict[str, Any] = {}
 
 class SamplerBase:
     """Base sampler class"""
@@ -371,6 +376,15 @@ def grade_single_example(
         while retry_count < max_retries:
             prompt_text = _build_batch_grader_prompt(prompt, response, llm_items)
             sampler_response = grader_model([dict(content=prompt_text, role="user")])
+            if os.getenv("RUSCARL_CAPTURE_JUDGE_TEXT", "").strip().lower() in ("1", "true", "yes", "y", "on"):
+                _LAST_JUDGE_DEBUG.clear()
+                _LAST_JUDGE_DEBUG.update(
+                    {
+                        "prompt_text": prompt_text,
+                        "response_text": getattr(sampler_response, "response_text", None),
+                        "actual_queried_message_list": getattr(sampler_response, "actual_queried_message_list", None),
+                    }
+                )
             llm_results = _parse_presence_response(
                 sampler_response.response_text,
                 expected_count=len(llm_items)
@@ -485,7 +499,7 @@ def compute_score_batched(data_sources: List[str], solution_strs: List[str], gro
         List[Dict[str, Any]]: List of dictionaries containing score, acc, and ground_truth fields
     """
     batch_data = list(zip(data_sources, solution_strs, ground_truths, extra_infos))
-    scores = batch_compute_scores(batch_data, max_workers_per_url=max_workers_per_url)
+    scores, skipped_reasons = batch_compute_scores(batch_data, max_workers_per_url=max_workers_per_url)
     
     # Convert scores to dictionary format containing score and acc fields
     results = []
@@ -493,6 +507,8 @@ def compute_score_batched(data_sources: List[str], solution_strs: List[str], gro
         results.append({
             "score": score,
             "acc": score > 0.5,  # Convert score to accuracy (boolean value)
+            "skipped": i in skipped_reasons,
+            "skip_reason": skipped_reasons.get(i),
             "ground_truth": ground_truths[i]  # Add ground_truth to the result
         })
     
@@ -512,7 +528,7 @@ def get_global_grader():
         )
     return _global_grader
 
-def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]], max_workers_per_url: int = MAX_CONCURRENT_WORKERS) -> List[float]:
+def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]], max_workers_per_url: int = MAX_CONCURRENT_WORKERS) -> Tuple[List[float], Dict[int, str]]:
     """
     Batch calculate reward scores for multiple responses
     
@@ -527,7 +543,7 @@ def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]],
         max_workers_per_url: Concurrency per URL, defaults to MAX_CONCURRENT_WORKERS. Total requests = max_workers_per_url × number of URLs
         
     Returns:
-        List[float]: List of reward scores
+        Tuple[List[float], Dict[int, str]]: (reward scores, skipped sample reasons keyed by sample_idx)
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import time
@@ -630,6 +646,23 @@ def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]],
     
     # Dictionary for tracking function call counts
     function_call_stats = {}
+
+    # Track samples skipped due to provider-side moderation / data inspection blocks.
+    skipped_reasons: Dict[int, str] = {}
+    try:
+        import threading
+        _skip_lock = threading.Lock()
+    except Exception:
+        _skip_lock = None
+
+    def _mark_sample_skipped(sample_idx: int, reason: str) -> None:
+        if sample_idx is None or sample_idx < 0:
+            return
+        if _skip_lock is None:
+            skipped_reasons.setdefault(sample_idx, reason)
+            return
+        with _skip_lock:
+            skipped_reasons.setdefault(sample_idx, reason)
     
     def process_rule_task(task):
         """Process single rule-based task"""
@@ -725,9 +758,23 @@ def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]],
                 })
             return results
         except Exception as e:
+            sample_idx = task.get('sample_idx', -1)
+            err_text = str(e)
+            if isinstance(e, VLLMDataInspectionError) or "data_inspection_failed" in err_text.lower():
+                _mark_sample_skipped(sample_idx, err_text)
+                return [{
+                    'sample_idx': sample_idx,
+                    'rubric_idx': idx,
+                    'result': {
+                        "criteria_met": False,
+                        "explanation": "Skipped: provider data inspection blocked the request (data_inspection_failed)"
+                    },
+                    'verification_type': 'llm_skipped'
+                } for idx in task.get('rubric_indices', [])]
+
             print(f"LLM task error: {e}")
             return [{
-                'sample_idx': task.get('sample_idx', -1),
+                'sample_idx': sample_idx,
                 'rubric_idx': idx,
                 'result': {
                     "criteria_met": False,
@@ -795,6 +842,10 @@ def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]],
     final_scores = []
     for sample_idx, (data_source, solution_str, ground_truth, extra_info) in enumerate(batch_data):
         try:
+            if sample_idx in skipped_reasons:
+                final_scores.append(0.0)
+                continue
+
             if extra_info is None:
                 final_scores.append(0.0)
                 continue
@@ -842,6 +893,8 @@ def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]],
     print(f"Total criterion count: {total_criteria}")
     print(f"Rule-based verification count: {rule_based_criteria}")
     print(f"LLM as a Judge count: {llm_criteria}")
+    if skipped_reasons:
+        print(f"Skipped sample count (data inspection): {len(skipped_reasons)}")
     if failed_rule_criteria > 0:
         print(f"Failed Rule Function count: {failed_rule_criteria}")
     
@@ -857,4 +910,4 @@ def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]],
         print(f"Average time per criterion: {total_time/total_criteria:.3f} seconds")
     print("="*60 + "\n")
     
-    return final_scores
+    return final_scores, skipped_reasons
