@@ -28,7 +28,14 @@ def _evaluate_reward(instruction, response, functions, reduction="mean"):
 
 
 
-def evaluate_if_reward_multi(instruction, answers, checker_names=None, functions=None, skip_rules=False):
+def evaluate_if_reward_multi(
+    instruction,
+    answers,
+    checker_names=None,
+    functions=None,
+    skip_rules=False,
+    ignore_rules=False,
+):
     llm_checkers, llm_functions, rule_checkers, rule_functions = [], [], [], []
     for checker, function in zip(checker_names, functions):
         if "[llm]" in checker:
@@ -40,7 +47,15 @@ def evaluate_if_reward_multi(instruction, answers, checker_names=None, functions
         else:
             pass
 
-    if skip_rules:
+    if ignore_rules:
+        # Match the "soft-constraint-only" behavior: drop rule-based constraints entirely.
+        rule_functions = []
+        rule_checkers = []
+    elif skip_rules:
+        # Re-route rule constraints to the LLM judge instead of executing code functions.
+        # This preserves the constraint text while disabling hard checks.
+        llm_checkers.extend([c.replace("[rule]", "").strip() for c in rule_checkers])
+        llm_functions.extend(rule_functions)
         rule_functions = []
         rule_checkers = []
 
@@ -61,4 +76,3 @@ def evaluate_if_reward_multi(instruction, answers, checker_names=None, functions
     return {
         "overall": [_scores * q_scores[i] for i, _scores in enumerate(scores)]
     }
-

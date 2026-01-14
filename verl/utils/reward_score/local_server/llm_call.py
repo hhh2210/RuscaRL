@@ -16,6 +16,10 @@ api_model = APIModel(api_url, model_name)
 
 _global_sampler = None
 
+# Optional debug capture for VerIF LLM judge (used by eval scripts).
+# Enabled when env `RUSCARL_CAPTURE_JUDGE_TEXT=1`.
+_LAST_VERIF_JUDGE_DEBUG = {}
+
 
 def _select_backend() -> str:
     backend = os.getenv("VERIF_LLM_BACKEND", "").strip().lower()
@@ -103,20 +107,43 @@ def llm_extract(instruction, response, specific_prompt):
 
 
 def extract_score(text):
+    """
+    Parse the verifier output into a binary 0/1 score.
+
+    We intentionally keep parsing strict to avoid "reward inflation" when the
+    judge prints additional natural language (e.g. "是的，因为...") that contains
+    the token "是". The contract for `llm_score` is to output `[[0]]` or `[[1]]`
+    at the beginning of the response.
+    """
     if not text:
         return None
-    match = re.search(r"\[\[\s*([01])\s*\]\]", text)
+    text = str(text).strip()
+
+    # Preferred: `[[0]]` / `[[1]]` at the beginning (allow trailing text).
+    match = re.match(r"^\s*\[\[\s*([01])\s*\]\]", text)
     if match:
         return int(match.group(1))
-    # Fallback: accept a leading 0/1 token if brackets are missing.
-    match = re.search(r"^\s*([01])\b", text)
+
+    # Fallback: bare `0` / `1` only when it's the whole content.
+    match = re.match(r"^\s*([01])\s*$", text)
     if match:
         return int(match.group(1))
-    # Fallback for yes/no in Chinese if it's unambiguous.
-    if "是" in text and "否" not in text:
-        return 1
-    if "否" in text and "是" not in text:
-        return 0
+
+    # Optional, strict yes/no fallback (disabled by default).
+    allow_yesno = os.getenv("VERIF_ALLOW_YESNO", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+    )
+    if allow_yesno:
+        normalized = re.sub(r"[\s。\.！!，,；;:：]+$", "", text).strip()
+        if normalized == "是":
+            return 1
+        if normalized == "否":
+            return 0
+
     return None
 
 
@@ -147,8 +174,17 @@ def llm_score(instruction, response, checkers):
     messages = data
 
     for attempt in range(max_retries + 1):
-        response = generate_chat(messages, max_tokens=4096)
-        score = extract_score(response)
+        judge_text = generate_chat(messages, max_tokens=4096)
+        if os.getenv("RUSCARL_CAPTURE_JUDGE_TEXT", "").strip().lower() in ("1", "true", "yes", "y", "on"):
+            _LAST_VERIF_JUDGE_DEBUG.clear()
+            _LAST_VERIF_JUDGE_DEBUG.update(
+                {
+                    "prompt": messages[0].get("content") if messages else None,
+                    "judge_text": judge_text,
+                    "checkers": checkers,
+                }
+            )
+        score = extract_score(judge_text)
         if score is not None:
             return score
         # Retry with a stricter format instruction.

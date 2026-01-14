@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
@@ -59,7 +60,20 @@ def _parse_solution(text: Any) -> str:
         text = "\n".join(str(t) for t in text)
     if text is None:
         return ""
-    return str(text).split("</think>")[-1].strip()
+
+    raw = str(text)
+    # Prefer stripping reasoning blocks : only the final answer should
+    # be evaluated against constraints.
+    if "</think>" in raw:
+        raw = raw.split("</think>")[-1]
+    elif "<think>" in raw:
+        # If generation got truncated inside the thinking block (missing closing tag),
+        # treat it as having no final answer rather than leaking thoughts into the judge.
+        return ""
+
+    # Remove any leftover <think>...</think> blocks (defensive).
+    raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)
+    return raw.strip()
 
 
 def _extract_instruction(extra_info: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -139,6 +153,7 @@ def compute_score(
     max_threads: int = _DEFAULT_MAX_THREADS,
     max_workers_per_url: int = 0,
     skip_rules: bool = False,
+    ignore_rules: bool = False,
     **kwargs,
 ) -> float:
     scores = compute_score_batched(
@@ -149,6 +164,7 @@ def compute_score(
         max_threads=max_threads,
         max_workers_per_url=max_workers_per_url,
         skip_rules=skip_rules,
+        ignore_rules=ignore_rules,
         **kwargs,
     )
     return float(scores[0]) if scores else 0.0
@@ -162,11 +178,14 @@ def compute_score_batched(
     max_threads: int = _DEFAULT_MAX_THREADS,
     max_workers_per_url: int = 0,
     skip_rules: bool = False,
+    ignore_rules: bool = False,
     **kwargs,
 ) -> List[float]:
     max_threads = _resolve_max_threads(max_threads=max_threads, max_workers_per_url=max_workers_per_url)
     if not skip_rules:
         skip_rules = bool(_get_env_int("VERIF_SKIP_RULES", 0))
+    if not ignore_rules:
+        ignore_rules = bool(_get_env_int("VERIF_IGNORE_RULES", 0))
 
     # Build requests
     data_list: List[Dict[str, Any]] = []
@@ -188,6 +207,7 @@ def compute_score_batched(
                 "answers": [_parse_solution(solution)],
                 "labels": label_str,
                 "skip_rules": skip_rules,
+                "ignore_rules": ignore_rules,
             }
         )
         index_map.append(i)

@@ -25,11 +25,13 @@ def local_serve(request):
     if not isinstance(checkers, list) or not isinstance(functions, list):
         return {"result": [0]}
     skip_rules = bool(request.get("skip_rules", False))
+    ignore_rules = bool(request.get("ignore_rules", False))
     result = evaluate_if_reward_multi(
         request["instruction"],
         request["answers"],
         checkers,
         functions,
         skip_rules=skip_rules,
+        ignore_rules=ignore_rules,
     )
     return {"result": result["overall"]}
