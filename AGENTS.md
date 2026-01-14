@@ -1,3 +1,7 @@
+# LLM as a judge for RL training 问题分析
+本 project立足于 llm judge 作为 RL training（GRPO范式，不是 DPO、RLHF） Reward 计算的时候存在的问题，进行 emprical study。
+- policy model是如何被 judge model 的bias 所影响的
+- 不同 family、参数大小的 judge model如何影响 RL training
 # 8*H800如何开启训练
 conda activate verl
 # 终端1：RL baseline，使用第一个 API key
@@ -80,4 +84,8 @@ scripts/ifeval_eval_vllm.sh \
 # Ins(L) = instruction-level (loose)
 
 # 需要修复
-1. LLM grading failure count reached limit (3 times), marking all as NOT_PRESEN 会导致分数被判定为 0
+1.health_bench/scaleai_batch_reward_fn.py： LLM grading failure count reached limit (3 times), marking all as NOT_PRESEN 会导致分数被判定为 0
+
+# 兼容性说明
+- DashScope `qwq-plus` 仅支持 stream；VLLMSampler 在 DashScope 端点自动设置 `stream=true` 并解析 SSE。
+- qwen3-8B 不需要复制 chat_template.jinja，因为模型内置了系统提示词。但 qwen2.5 需要在训练配置里设置 actor_rollout_ref.model.custom_chat_template 为 chat_template.jinja 内容
