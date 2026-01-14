@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import time
@@ -28,6 +29,37 @@ class SamplerBase:
     """Base sampler class."""
     def _pack_message(self, content: str, role: str = "user") -> Dict[str, str]:
         return {"role": role, "content": content}
+
+
+class VLLMStreamError(RuntimeError):
+    """Raised when an OpenAI-compatible SSE stream contains an error payload."""
+
+    def __init__(self, error_payload: object):
+        self.error_payload = error_payload
+        super().__init__(f"SSE stream returned error payload: {error_payload}")
+
+
+class VLLMDataInspectionError(VLLMStreamError):
+    """
+    Raised when the serving platform blocks the request via content/data inspection.
+
+    This is typically a non-transient error and should NOT be retried with exponential backoff.
+    """
+
+
+def _is_data_inspection_error_payload(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    code = str(payload.get("code") or payload.get("type") or "").strip().lower()
+    return code in ("data_inspection_failed", "inappropriate_content")
+
+
+def _exception_mentions_data_inspection(exc: BaseException) -> bool:
+    try:
+        text = str(exc).lower()
+    except Exception:
+        return False
+    return "data_inspection_failed" in text or "inappropriate content" in text
 
 
 class ChatCompletionSampler(SamplerBase):
@@ -117,7 +149,7 @@ class VLLMSampler(SamplerBase):
         self.model = model or os.getenv("VLLM_MODEL", "default")
         self.system_message = system_message
         self.temperature = temperature if temperature is not None else float(os.getenv("VLLM_TEMPERATURE", "0.7"))
-        self.max_tokens = max_tokens if max_tokens is not None else int(os.getenv("VLLM_MAX_TOKENS", "2048"))
+        self.max_tokens = max_tokens if max_tokens is not None else int(os.getenv("VLLM_MAX_TOKENS", "4096"))
         self.timeout = timeout if timeout is not None else int(os.getenv("VLLM_TIMEOUT", "120"))
         self.enable_thinking = enable_thinking
         self.filter_think_tags = filter_think_tags
@@ -197,6 +229,52 @@ class VLLMSampler(SamplerBase):
     def _filter_think_tags(self, text: str) -> str:
         """Remove <think></think> tags and their content."""
         return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+
+    def _iter_sse_lines(self, resp: requests.Response):
+        for raw in resp.iter_lines(decode_unicode=True):
+            if raw is None:
+                continue
+            line = raw.strip()
+            if not line:
+                continue
+            yield line
+
+    def _consume_stream_content(self, resp: requests.Response) -> tuple[str, dict | None]:
+        content_parts: List[str] = []
+        usage = None
+        last_error = None
+        for line in self._iter_sse_lines(resp):
+            if not line.startswith("data:"):
+                continue
+            data = line[len("data:"):].strip()
+            if data == "[DONE]":
+                break
+            try:
+                payload = json.loads(data)
+            except Exception:
+                continue
+            if isinstance(payload, dict) and "error" in payload:
+                # Some providers return errors inside the SSE stream with 200 OK.
+                last_error = payload.get("error")
+                continue
+            if isinstance(payload, dict) and "usage" in payload:
+                usage = payload.get("usage")
+            choices = payload.get("choices") if isinstance(payload, dict) else None
+            if not choices:
+                continue
+            choice0 = choices[0] if isinstance(choices, list) else {}
+            delta = choice0.get("delta") or choice0.get("message") or {}
+            piece = delta.get("content")
+            if piece:
+                content_parts.append(piece)
+        content = "".join(content_parts)
+        if not content.strip():
+            if last_error is not None:
+                if _is_data_inspection_error_payload(last_error):
+                    raise VLLMDataInspectionError(last_error)
+                raise VLLMStreamError(last_error)
+            raise RuntimeError("SSE stream returned empty content (no choices).")
+        return content, usage
 
     def _get_url_load(self, url: str) -> dict:
         """Get load information for a single URL."""
@@ -330,25 +408,34 @@ class VLLMSampler(SamplerBase):
                 payload = {
                     "model": self.model,
                     "messages": message_list,
-                    "temperature": 0.7,
-                    "top_p": 0.8,
+                    "temperature": self.temperature,
+                    "max_tokens": self.max_tokens,
                 }
                 if not strict_openai_compat:
-                    payload["top_k"] = 20
+                    # Do not send top_p/top_k by default; let the serving platform decide.
+                    pass
+                use_stream = False
                 if "dashscope.aliyuncs.com/compatible-mode" in current_url:
                     payload.setdefault("enable_thinking", False)
+                    payload.setdefault("stream", True)
+                    use_stream = True
 
                 response = requests.post(
                     f"{current_url}/chat/completions",
                     headers=self.headers,
                     json=payload,
-                    timeout=self.timeout
+                    timeout=self.timeout,
+                    stream=use_stream,
                 )
                 response.raise_for_status()
-                response_data = response.json()
-                content = response_data["choices"][0]["message"]["content"]
+                if use_stream:
+                    content, usage = self._consume_stream_content(response)
+                else:
+                    response_data = response.json()
+                    content = response_data["choices"][0]["message"]["content"]
+                    usage = response_data.get("usage")
 
-                if content is None:
+                if content is None or not str(content).strip():
                     raise ValueError("VLLM service returned empty response, retrying...")
 
                 if self.filter_think_tags:
@@ -359,13 +446,17 @@ class VLLMSampler(SamplerBase):
 
                 return SamplerResponse(
                     response_text=content,
-                    response_metadata={"usage": response_data.get("usage")},
+                    response_metadata={"usage": usage},
                     actual_queried_message_list=message_list,
                 )
 
             except Exception as e:
                 if current_url and current_url in self.virtual_loads:
                     self.virtual_loads[current_url] = max(0, self.virtual_loads[current_url] - 1)
+
+                # Provider-side data inspection blocks are not transient; don't retry forever.
+                if isinstance(e, VLLMDataInspectionError) or _exception_mentions_data_inspection(e):
+                    raise
 
                 print(f"Request to VLLM service failed, retrying... {e}")
                 trial += 1
