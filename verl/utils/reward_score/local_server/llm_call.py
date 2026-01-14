@@ -48,12 +48,19 @@ def _get_sampler() -> "VLLMSampler":
 
 
 def generate_chat(messages, max_tokens=1280, temperature=0.0):
+    t0 = time.time()
     backend = _select_backend()
     if backend == "vllm":
         sampler = _get_sampler()
         response = sampler(messages).response_text
+        elapsed = time.time() - t0
+        if os.getenv("VERIF_DEBUG_LLM_TIMING", "").strip().lower() in ("1", "true", "yes"):
+            print(f"    [llm_call] backend=vllm, elapsed={elapsed:.3f}s")
         return (response or "").strip()
     response = api_model.generate_chat(messages, max_tokens, temperature)
+    elapsed = time.time() - t0
+    if os.getenv("VERIF_DEBUG_LLM_TIMING", "").strip().lower() in ("1", "true", "yes"):
+        print(f"    [llm_call] backend=openai, elapsed={elapsed:.3f}s")
     return response.strip()
 
 

@@ -2,8 +2,11 @@ import json
 import os
 import re
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
+
+from tqdm import tqdm
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 if _REPO_ROOT not in sys.path:
@@ -134,12 +137,14 @@ def _local_request(data_list: List[Dict[str, Any]], max_threads: int) -> List[fl
         future_to_index = {
             executor.submit(local_serve, data): idx for idx, data in enumerate(data_list)
         }
-        for future in as_completed(future_to_index):
-            idx = future_to_index[future]
-            try:
-                results[idx] = _parse_if_verifier_rm_reward(future.result())
-            except Exception:
-                results[idx] = -1.0
+        with tqdm(total=len(data_list), desc="Judge reward", unit="sample") as pbar:
+            for future in as_completed(future_to_index):
+                idx = future_to_index[future]
+                try:
+                    results[idx] = _parse_if_verifier_rm_reward(future.result())
+                except Exception:
+                    results[idx] = -1.0
+                pbar.update(1)
 
     # Fill any missing results
     return [r if r is not None else -1.0 for r in results]
@@ -181,6 +186,8 @@ def compute_score_batched(
     ignore_rules: bool = False,
     **kwargs,
 ) -> List[float]:
+    t_start = time.time()
+
     max_threads = _resolve_max_threads(max_threads=max_threads, max_workers_per_url=max_workers_per_url)
     if not skip_rules:
         skip_rules = bool(_get_env_int("VERIF_SKIP_RULES", 0))
@@ -188,6 +195,7 @@ def compute_score_batched(
         ignore_rules = bool(_get_env_int("VERIF_IGNORE_RULES", 0))
 
     # Build requests
+    t_build_start = time.time()
     data_list: List[Dict[str, Any]] = []
     index_map: List[int] = []
     scores: List[float] = [0.0] * len(solution_strs)
@@ -211,10 +219,19 @@ def compute_score_batched(
             }
         )
         index_map.append(i)
+    t_build_end = time.time()
 
     if data_list:
+        t_judge_start = time.time()
         batch_scores = _local_request(data_list, max_threads=max_threads)
         for j, score in enumerate(batch_scores):
             scores[index_map[j]] = score
+        t_judge_end = time.time()
+
+        t_total = time.time() - t_start
+        print(
+            f"[verif_reward] total={len(solution_strs)} samples, valid={len(data_list)} | "
+            f"build={t_build_end - t_build_start:.2f}s, judge={t_judge_end - t_judge_start:.2f}s, total={t_total:.2f}s"
+        )
 
     return scores
