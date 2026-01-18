@@ -6,6 +6,7 @@ import time
 import random
 from dataclasses import dataclass
 from typing import List, Dict, Tuple, Any
+from datetime import datetime
 try:
     from openai import OpenAI
 except ImportError:
@@ -19,6 +20,24 @@ from verl.utils.reward_score.rule_fn import get_verification_function, VERIFICAT
 
 # Concurrent workers control variable for single URL
 MAX_CONCURRENT_WORKERS = 512
+
+# Default rubric batch size for a single judge request (override via env)
+DEFAULT_RUBRIC_BATCH_SIZE = 10
+
+# Judge debug log directory
+JUDGE_LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs", "judge_log")
+
+def _ensure_log_dir():
+    """Ensure the judge log directory exists."""
+    os.makedirs(JUDGE_LOG_DIR, exist_ok=True)
+
+def _log_judge_debug(message: str):
+    """Write debug message to judge log file."""
+    _ensure_log_dir()
+    log_file = os.path.join(JUDGE_LOG_DIR, f"judge_debug_{datetime.now().strftime('%Y%m%d')}.log")
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(f"[{timestamp}] {message}\n")
 
 # Load .env file
 load_dotenv()
@@ -178,6 +197,124 @@ In other words, for criteria with negative points, a good response should be cla
 Return just the json object in markdown format. Do not include any other text in the response.
 """.strip()
 
+def _get_rubric_batch_size() -> int:
+    raw_value = os.getenv("GRADER_RUBRIC_BATCH_SIZE", str(DEFAULT_RUBRIC_BATCH_SIZE)).strip()
+    try:
+        batch_size = int(raw_value)
+    except Exception:
+        batch_size = DEFAULT_RUBRIC_BATCH_SIZE
+    return max(1, batch_size)
+
+def _chunk_indices(indices: List[int], chunk_size: int):
+    for start in range(0, len(indices), chunk_size):
+        yield indices[start:start + chunk_size]
+
+def _build_batch_grader_prompt(
+    prompt: List[Dict[str, str]],
+    response: str,
+    rubric_items: List[RubricItem],
+) -> str:
+    convo_with_response = prompt + [dict(content=response, role="assistant")]
+    convo_str = "\n\n".join(
+        [f"{m['role']}: {m['content']}" for m in convo_with_response if m.get("role") != "system"]
+    )
+    rubrics_str = "\n".join(
+        f"{idx + 1}. {item.criterion}" for idx, item in enumerate(rubric_items)
+    )
+    return f"""Your job is to look at a conversation and a list of rubric items, and score the last turn (i.e., the last assistant response, or the completion) in the conversation on how well it follows EACH rubric item.
+
+# Conversation
+{convo_str}
+
+# Rubric items
+{rubrics_str}
+
+# Instructions
+Return a json object in markdown format with the following structure:
+- Keys are the rubric numbers (1-based).
+- Values are booleans (true/false) indicating whether the response meets that rubric item.
+- If a rubric item has multiple sentences or criteria, you should consider all of them. If any of the criteria is not met, the answer should be false. Only return true if all of the criteria are met.
+- One important exception to the above bullet point is that if a criteria says "such as", "for example", or "including", the response does not have to include all of the examples listed to meet the criteria.
+- If the criteria is undesirable (e.g., a negative-point rubric), you should still return true if the response meets that undesirable criterion.
+
+# Example response
+```json
+{{
+  "1": true,
+  "2": false,
+  "3": true
+}}
+```
+
+# Final instruction
+Return just the json object in markdown format. Do not include any other text in the response.
+""".strip()
+
+def _parse_batch_grading_response(resp_text: str, expected_count: int) -> Dict[int, bool]:
+    cleaned = re.sub(r"^```json\s*|\s*```$", "", resp_text.strip())
+    try:
+        data = json.loads(cleaned)
+    except Exception:
+        return {}
+
+    results: Dict[int, bool] = {}
+    for key, val in data.items():
+        try:
+            idx = int(key)
+        except Exception:
+            continue
+        if idx < 1 or idx > expected_count:
+            continue
+        if isinstance(val, bool):
+            results[idx] = val
+            continue
+        if isinstance(val, (int, float)) and val in (0, 1):
+            results[idx] = bool(val)
+            continue
+        if isinstance(val, str):
+            norm = val.strip().upper()
+            if norm in ("TRUE", "PRESENT", "YES", "Y"):
+                results[idx] = True
+            elif norm in ("FALSE", "NOT_PRESENT", "NO", "N"):
+                results[idx] = False
+    return results
+
+def _grade_llm_rubric_batch(
+    prompt: List[Dict[str, str]],
+    response: str,
+    rubric_items: List[RubricItem],
+    grader_model,
+    max_retries: int = 3,
+) -> Dict[int, bool]:
+    if not rubric_items:
+        return {}
+    retry_count = 0
+    llm_results: Dict[int, bool] = {}
+    last_response_text = ""
+    while retry_count < max_retries:
+        prompt_text = _build_batch_grader_prompt(prompt, response, rubric_items)
+        sampler_response = grader_model([dict(content=prompt_text, role="user")])
+        last_response_text = sampler_response.response_text
+        llm_results = _parse_batch_grading_response(
+            last_response_text,
+            expected_count=len(rubric_items),
+        )
+        if len(llm_results) == len(rubric_items):
+            return llm_results
+        retry_count += 1
+
+    print(
+        f"Batch grading failure count reached limit ({max_retries} times), marking all as NOT_PRESENT"
+    )
+    # Log debug info to file
+    _log_judge_debug("=" * 60)
+    _log_judge_debug(f"Batch grading FAILED after {max_retries} retries")
+    _log_judge_debug(f"Expected {len(rubric_items)} results, got {len(llm_results)}: {llm_results}")
+    _log_judge_debug(f"Rubric items: {[str(r) for r in rubric_items]}")
+    _log_judge_debug(f"Last judge response:\n{last_response_text}")
+    _log_judge_debug("=" * 60)
+    return {i + 1: False for i in range(len(rubric_items))}
+
 def parse_json_to_dict(json_string: str) -> dict:
     """Parse JSON string, handling markdown format"""
     original_string = json_string
@@ -268,6 +405,9 @@ def parse_json_to_dict(json_string: str) -> dict:
         print("="*80)
         return {}
 
+    # Fallback: if try block completed without returning (no valid JSON structure found)
+    return {}
+
 def calculate_score(rubric_items: List[RubricItem], grading_response_list: List[dict]) -> float:
     """Calculate total score"""
     total_possible_points = sum(
@@ -291,90 +431,68 @@ def grade_single_example(
     grader_model,
     executor=None,  # New parameter: external thread pool
 ) -> Tuple[float, str, List[Dict]]:
-    """Evaluate a single example
-    
-    Args:
-        prompt: Conversation history
-        response: Model response
-        rubric_items: List of grading criteria
-        grader_model: Grading model
-        executor: External thread pool for global concurrency control
-        
-    Returns:
-        tuple: (score, detailed explanation, grading results for each criterion)
-    """
-    # Build complete conversation
-    convo_with_response = prompt + [dict(content=response, role="assistant")]
-    
-    def grade_rubric_item(rubric_item: RubricItem) -> dict:
-        # Check if tags contain rule-based verification
-        if rubric_item.tags:
-            # Check if there's a verifier tag with value 'rule'
-            verifier_type = rubric_item.tags.get("verifier")
-            if verifier_type == "rule":
-                # Get function and parameters directly from dictionary
-                function_name = rubric_item.tags.get("function")
-                parameter_value = rubric_item.tags.get("parameters")
-                
-                # Dynamically call verification function
-                if function_name and parameter_value is not None:
-                    # Get function from verification function registry
-                    verify_func = get_verification_function(function_name) if get_verification_function else None
-                    if verify_func:
-                        criteria_met = verify_func(response, parameter_value)
-                        return {
-                            "criteria_met": criteria_met,
-                            "explanation": f"Rule-based verification using {function_name} with parameter '{parameter_value}': {'PASS' if criteria_met else 'FAIL'}"
-                        }
-                    else:
-                        raise ValueError(f"Verification function '{function_name}' not found")
-        
-        # Model-based verification
-        # If no rule-based verification or verification failed, use traditional LLM grading
-        # Build conversation string, filtering out system role messages
-        convo_str = "\n\n".join(
-            [f"{m['role']}: {m['content']}" for m in convo_with_response if m['role'] != 'system']
-        )
-        # Build grading prompt
-        grader_prompt = GRADER_TEMPLATE.replace(
-            "<<conversation>>", convo_str
-        ).replace("<<rubric_item>>", str(rubric_item))
-        messages = [dict(content=grader_prompt, role="user")]
-        
-        # Call grading model
-        retry_count = 0
-        max_retries = 3
-        while retry_count < max_retries:
-            sampler_response = grader_model(messages)
-            # Get response_text from SamplerResponse object
-            grading_response_dict = parse_json_to_dict(sampler_response.response_text)
-            if "criteria_met" in grading_response_dict:
-                label = grading_response_dict["criteria_met"]
-                if label is True or label is False:
-                    break
-            # Grading failed, JSON output error, retrying (not printing details to avoid log pollution)
-            pass
-            retry_count += 1
-            
-        # If retry count reaches limit, return failure result
-        if retry_count >= max_retries:
-            print(f"Grading failure count reached limit ({max_retries} times), returning failure result")
-            return {
-                "criteria_met": False,
-                "explanation": "Too many JSON parsing failures"
-            }
-            
-        return grading_response_dict
+    """Evaluate a single example with rule checks + batched LLM grading for non-rule criteria"""
+    def run_rule_check(rubric_item: RubricItem) -> dict | None:
+        verifier_type = rubric_item.tags.get("verifier") if rubric_item.tags else None
+        if verifier_type == "rule":
+            function_name = rubric_item.tags.get("function")
+            parameter_value = rubric_item.tags.get("parameters")
+            if function_name and parameter_value is not None:
+                verify_func = get_verification_function(function_name) if get_verification_function else None
+                if verify_func:
+                    criteria_met = verify_func(response, parameter_value)
+                    return {
+                        "criteria_met": criteria_met,
+                        "explanation": f"Rule-based verification using {function_name} with parameter '{parameter_value}': {'PASS' if criteria_met else 'FAIL'}"
+                    }
+                raise ValueError(f"Verification function '{function_name}' not found")
+        return None
 
-    # Evaluate each criterion - only use external thread pool (single-layer global concurrency)
-    if executor is not None:
-        # Use external thread pool (global concurrency control)
-        futures = [executor.submit(grade_rubric_item, rubric_item) for rubric_item in rubric_items]
-        grading_response_list = [future.result() for future in futures]
-    else:
-        # If no external thread pool, execute sequentially (for single example testing)
-        print("No external thread pool, executing sequentially")
-        grading_response_list = [grade_rubric_item(rubric_item) for rubric_item in rubric_items]
+    # Split rubric items into rule-based and LLM-based
+    rule_indices = []
+    llm_indices = []
+    for idx, item in enumerate(rubric_items):
+        if (item.tags and item.tags.get("verifier") == "rule" and
+            item.tags.get("function") and item.tags.get("parameters") is not None):
+            rule_indices.append(idx)
+        else:
+            llm_indices.append(idx)
+
+    grading_response_list = [None] * len(rubric_items)
+
+    # Run rule checks sequentially (or via executor if provided)
+    if rule_indices:
+        if executor is not None:
+            futures = {}
+            for idx in rule_indices:
+                futures[executor.submit(run_rule_check, rubric_items[idx])] = idx
+            for future in futures:
+                res = future.result()
+                grading_response_list[futures[future]] = res or {
+                    "criteria_met": False,
+                    "explanation": "Rule verification failed or not applicable"
+                }
+        else:
+            print("No external thread pool, executing sequentially")
+            for idx in rule_indices:
+                res = run_rule_check(rubric_items[idx])
+                grading_response_list[idx] = res or {
+                    "criteria_met": False,
+                    "explanation": "Rule verification failed or not applicable"
+                }
+
+    # Batched LLM grading for remaining criteria
+    if llm_indices:
+        batch_size = _get_rubric_batch_size()
+        for chunk in _chunk_indices(llm_indices, batch_size):
+            llm_items = [rubric_items[i] for i in chunk]
+            llm_results = _grade_llm_rubric_batch(prompt, response, llm_items, grader_model)
+            for local_idx, rubric_global_idx in enumerate(chunk):
+                present = llm_results.get(local_idx + 1, False)
+                grading_response_list[rubric_global_idx] = {
+                    "criteria_met": present,
+                    "explanation": f"Batch LLM evaluation: {'PRESENT' if present else 'NOT_PRESENT'}"
+                }
 
     # Calculate total score
     overall_score = calculate_score(rubric_items, grading_response_list)
@@ -426,6 +544,12 @@ def compute_score(data_source: str, solution_str: str, ground_truth: str = None,
         prompt = extra_info.get("prompt", [])
         reward_model = extra_info.get("reward_model", {})
         rubrics = reward_model.get("rubrics", [])
+        
+        # Convert numpy arrays to lists if needed (parquet stores as numpy arrays)
+        if hasattr(prompt, 'tolist'):
+            prompt = prompt.tolist()
+        if hasattr(rubrics, 'tolist'):
+            rubrics = rubrics.tolist()
         
         if not prompt or not rubrics:
             return 0.0
@@ -558,6 +682,8 @@ def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]],
     print(
         f"Configured {url_count} URLs (available={effective_url_count}), max_workers_per_url={per_url_workers}, total_concurrency={actual_max_workers}"
     )
+
+    rubric_batch_size = _get_rubric_batch_size()
     
     # Separate rule and LLM tasks
     rule_tasks = []
@@ -577,23 +703,31 @@ def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]],
         rubric_items = [RubricItem.from_dict(r) for r in rubrics]
         
         # Classify tasks by type
+        llm_indices = []
         for rubric_idx, rubric_item in enumerate(rubric_items):
-            task = {
-                'sample_idx': sample_idx,
-                'rubric_idx': rubric_idx,
-                'prompt': prompt,
-                'response': solution_str,
-                'rubric_item': rubric_item,
-                'rubric_items': rubric_items
-            }
-            
             # Check if this is a rule-based task
             if (rubric_item.tags and 
                 rubric_item.tags.get("verifier") == "rule" and 
                 rubric_item.tags.get("function")):
-                rule_tasks.append(task)
+                rule_tasks.append({
+                    'sample_idx': sample_idx,
+                    'rubric_idx': rubric_idx,
+                    'prompt': prompt,
+                    'response': solution_str,
+                    'rubric_item': rubric_item,
+                    'rubric_items': rubric_items
+                })
             else:
-                llm_tasks.append(task)
+                llm_indices.append(rubric_idx)
+
+        for chunk in _chunk_indices(llm_indices, rubric_batch_size):
+            llm_tasks.append({
+                'sample_idx': sample_idx,
+                'prompt': prompt,
+                'response': solution_str,
+                'rubric_items': [rubric_items[i] for i in chunk],
+                'rubric_indices': chunk
+            })
     
     # Dictionary for tracking function call counts
     function_call_stats = {}
@@ -657,73 +791,49 @@ def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]],
             }
     
     def process_llm_task(task):
-        """Process single LLM-based task"""
+        """Process batched LLM-based criteria"""
         try:
-            # Build complete conversation
-            convo_with_response = task['prompt'] + [dict(content=task['response'], role="assistant")]
-            
-            # Build conversation string, filtering out system role messages
-            convo_str = "\n\n".join(
-                [f"{m['role']}: {m['content']}" for m in convo_with_response if m['role'] != 'system']
+            rubric_items = task['rubric_items']
+            rubric_indices = task['rubric_indices']
+            llm_results = _grade_llm_rubric_batch(
+                task['prompt'],
+                task['response'],
+                rubric_items,
+                grader,
             )
-            
-            # Build grading prompt
-            grader_prompt = GRADER_TEMPLATE.replace(
-                "<<conversation>>", convo_str
-            ).replace("<<rubric_item>>", str(task['rubric_item']))
-            messages = [dict(content=grader_prompt, role="user")]
-            
-            # Call grading model
-            retry_count = 0
-            max_retries = 3
-            while retry_count < max_retries:
-                sampler_response = grader(messages)
-                grading_response_dict = parse_json_to_dict(sampler_response.response_text)
-                if "criteria_met" in grading_response_dict:
-                    label = grading_response_dict["criteria_met"]
-                    if label is True or label is False:
-                        return {
-                            'sample_idx': task['sample_idx'],
-                            'rubric_idx': task['rubric_idx'],
-                            'result': grading_response_dict,
-                            'verification_type': 'llm'
-                        }
-                # Grading failed, JSON output error, retrying (not printing details to avoid log pollution)
-                pass
-                retry_count += 1
-                
-            # If retry count reaches limit, return failure result
-            print(f"LLM grading failure count reached limit ({max_retries} times), returning failure result")
-            return {
-                'sample_idx': task['sample_idx'],
-                'rubric_idx': task['rubric_idx'],
-                'result': {
-                    "criteria_met": False,
-                    "explanation": "JSON parsing failed too many times"
-                },
-                'verification_type': 'llm_failed'
-            }
-            
+            results = []
+            for local_idx, global_idx in enumerate(rubric_indices):
+                present = llm_results.get(local_idx + 1, False)
+                results.append({
+                    'sample_idx': task['sample_idx'],
+                    'rubric_idx': global_idx,
+                    'result': {
+                        "criteria_met": present,
+                        "explanation": f"Batch LLM evaluation: {'PRESENT' if present else 'NOT_PRESENT'}"
+                    },
+                    'verification_type': 'llm'
+                })
+            return results
         except Exception as e:
             print(f"LLM task error: {e}")
-            return {
+            return [{
                 'sample_idx': task['sample_idx'],
-                'rubric_idx': task['rubric_idx'],
+                'rubric_idx': idx,
                 'result': {
                     "criteria_met": False,
                     "explanation": f"LLM processing error: {str(e)}"
                 },
                 'verification_type': 'llm_failed'
-            }
+            } for idx in task.get('rubric_indices', [])]
     
     # Count total criteria
-    total_criteria = len(rule_tasks) + len(llm_tasks)
+    total_criteria = len(rule_tasks) + sum(len(task.get('rubric_indices', [])) for task in llm_tasks)
     
     # Store all results
     sample_results = {}  # sample_idx -> {rubric_idx: result}
     failed_rule_criteria = 0
     
-    print(f"\nProcessing {len(rule_tasks)} rule tasks and {len(llm_tasks)} LLM tasks...")
+    print(f"\nProcessing {len(rule_tasks)} rule tasks and {len(llm_tasks)} LLM batch tasks (batch_size={rubric_batch_size})...")
     
     # Phase 1: Process rule tasks sequentially (batch processing)
     print("Phase 1: Processing rule-based criteria sequentially...")
@@ -757,16 +867,17 @@ def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]],
             
             # Collect results
             for future in as_completed(future_to_task):
-                result = future.result()
-                sample_idx = result['sample_idx']
-                if sample_idx not in sample_results:
-                    sample_results[sample_idx] = {}
-                sample_results[sample_idx][result['rubric_idx']] = result['result']
-                
-                # Count verification types
-                verification_type = result.get('verification_type', 'unknown')
-                if verification_type == 'llm':
-                    llm_criteria += 1
+                result_list = future.result()
+                for result in result_list:
+                    sample_idx = result['sample_idx']
+                    if sample_idx not in sample_results:
+                        sample_results[sample_idx] = {}
+                    sample_results[sample_idx][result['rubric_idx']] = result['result']
+                    
+                    # Count verification types
+                    verification_type = result.get('verification_type', 'unknown')
+                    if verification_type == 'llm':
+                        llm_criteria += 1
     
     llm_end_time = time.time()
     print(f"LLM processing completed in {llm_end_time - llm_start_time:.2f} seconds")
@@ -822,6 +933,7 @@ def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]],
     print(f"Total criterion count: {total_criteria}")
     print(f"Rule-based verification count: {rule_based_criteria}")
     print(f"LLM as a Judge count: {llm_criteria}")
+    print(f"LLM API calls (batch tasks): {len(llm_tasks)} (batch_size={rubric_batch_size})")
     if failed_rule_criteria > 0:
         print(f"Failed Rule Function count: {failed_rule_criteria}")
     
@@ -831,7 +943,11 @@ def batch_compute_scores(batch_data: List[Tuple[str, str, str, Dict[str, Any]]],
         for func_name, count in function_call_stats.items():
             if count > 0:
                 print(f"  {func_name}: {count} times")
-    
+
+    # Print judge output length statistics
+    grader.print_output_stats(prefix="\n")
+    grader.reset_output_stats()
+
     print(f"\nTotal time: {total_time:.2f} seconds")
     if total_criteria > 0:
         print(f"Average time per criterion: {total_time/total_criteria:.3f} seconds")
