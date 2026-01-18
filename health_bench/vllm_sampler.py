@@ -185,6 +185,9 @@ class VLLMSampler(SamplerBase):
             "Authorization": auth_header,
         }
 
+        # Output length statistics
+        self.output_lengths: List[int] = []
+
         print(f"VLLMSampler initialization completed, configured {len(self.base_urls)} URLs: {self.base_urls}")
         print("\n=== Initialization Load Information ===")
         available_urls = [url for url in self.base_urls if self.url_loads[url].get('available', False)]
@@ -414,9 +417,12 @@ class VLLMSampler(SamplerBase):
                 if not strict_openai_compat:
                     # Do not send top_p/top_k by default; let the serving platform decide.
                     pass
+
+                # Always pass enable_thinking parameter to control thinking output
+                payload["enable_thinking"] = self.enable_thinking
+
                 use_stream = False
                 if "dashscope.aliyuncs.com/compatible-mode" in current_url:
-                    payload.setdefault("enable_thinking", False)
                     payload.setdefault("stream", True)
                     use_stream = True
 
@@ -444,6 +450,9 @@ class VLLMSampler(SamplerBase):
                 if current_url and current_url in self.virtual_loads:
                     self.virtual_loads[current_url] = max(0, self.virtual_loads[current_url] - 1)
 
+                # Record output length for statistics
+                self.output_lengths.append(len(content))
+
                 return SamplerResponse(
                     response_text=content,
                     response_metadata={"usage": usage},
@@ -463,3 +472,29 @@ class VLLMSampler(SamplerBase):
                 self._reload_urls_from_env()
                 self._update_loads()
                 time.sleep(min(2 ** trial, 300))
+
+    def get_output_stats(self) -> dict:
+        """Get output length statistics."""
+        if not self.output_lengths:
+            return {'count': 0, 'avg_len': 0, 'min_len': 0, 'max_len': 0, 'total_chars': 0}
+        return {
+            'count': len(self.output_lengths),
+            'avg_len': sum(self.output_lengths) / len(self.output_lengths),
+            'min_len': min(self.output_lengths),
+            'max_len': max(self.output_lengths),
+            'total_chars': sum(self.output_lengths),
+        }
+
+    def reset_output_stats(self):
+        """Reset output length statistics."""
+        self.output_lengths = []
+
+    def print_output_stats(self, prefix: str = ""):
+        """Print output length statistics."""
+        stats = self.get_output_stats()
+        if stats['count'] == 0:
+            print(f"{prefix}[Judge Output Stats] No data collected")
+            return
+        print(f"{prefix}[Judge Output Stats] count={stats['count']}, "
+              f"avg_len={stats['avg_len']:.1f}, min={stats['min_len']}, max={stats['max_len']}, "
+              f"total_chars={stats['total_chars']}")
