@@ -23,17 +23,20 @@ Each JSONL row contains:
 
 ## Build / refresh
 
-Re-generate (deterministic sampling):
+### re-generate (deterministic sampling):
 
 ```bash
 python scripts/build_judge_bias_eval_dataset.py \
-  --n-total 10 \
-  --n-healthbench 5 \
+  --n-total 500 \
+  --n-healthbench 250 \
   --seed 0 \
   --out data/eval/judge_bias_eval_10.jsonl
 ```
 
 ## Policy rollout generation (V1)
+
+### TODO: Rewriter
+使用 policy模型 本身，通过 prompt 改写得到有 bias 的 rollout,然后再 judge 得到分数
 
 ### Remote (OpenAI-compatible endpoint)
 

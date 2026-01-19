@@ -10,7 +10,7 @@ MODEL_PATH="/data/MODEL/Qwen3-8B"
 # Data configuration (VerIF-format parquet built from THU-KEG/VerInstruct)
 DATA_TRAIN_PATH="data/verinstruct_verif/verinstruct_verif_train.parquet"
 DATA_VAL_PATH="data/verinstruct_verif/verinstruct_verif_val.parquet"
-
+OUTPUT_DIR="/data/haozy/${EXPERIMENT_NAME}"
 # Experiment configuration
 VLLM_MODEL_TAG="${VLLM_MODEL:-unset}"
 # If VLLM_MODEL is a path, keep only the last segment; then sanitize to be filesystem-safe.
@@ -45,7 +45,7 @@ python3 -m verl.trainer.main_ppo \
     data.truncation='error' \
     custom_reward_function.path=verl/utils/reward_score/verif_reward_fn.py \
     custom_reward_function.name=compute_score_batched \
-    +custom_reward_function.reward_kwargs.max_workers_per_url=64 \
+    +custom_reward_function.reward_kwargs.max_workers_per_url=512 \
     +custom_reward_function.reward_kwargs.skip_rules=true \
     reward_model.reward_manager=batch_verif \
     actor_rollout_ref.model.path=${MODEL_PATH} \
@@ -75,12 +75,12 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger=['console','wandb'] \
     trainer.project_name='verl_grpo_general' \
     trainer.experiment_name=${EXPERIMENT_NAME} \
-    trainer.default_local_dir="/root/aicloud-data/checkpoints/${EXPERIMENT_NAME}" \
+    trainer.default_local_dir=${OUTPUT_DIR} \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=999999 \
     trainer.test_freq=5 \
-    trainer.rollout_data_dir="./log/rollout_log/${EXPERIMENT_NAME}" \
-    trainer.validation_data_dir="./log/validation_log/${EXPERIMENT_NAME}" \
+    trainer.rollout_data_dir="${OUTPUT_DIR}/log/rollout_log/${EXPERIMENT_NAME}" \
+    trainer.validation_data_dir="${OUTPUT_DIR}/log/validation_log/${EXPERIMENT_NAME}" \
     trainer.total_training_steps=350 \
     trainer.total_epochs=5 $@

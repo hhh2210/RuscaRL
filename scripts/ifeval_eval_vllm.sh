@@ -120,6 +120,8 @@ except LookupError:
 PY
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 GEN_ARGS=(
   --model "$MODEL"
   --input "$INPUT_DATA"
@@ -142,7 +144,7 @@ if [[ -n "$CUDA_DEVICES" ]]; then
   export CUDA_VISIBLE_DEVICES="$CUDA_DEVICES"
 fi
 
-python /root/RuscaRL/scripts/ifeval_generate_vllm.py "${GEN_ARGS[@]}"
+python "${SCRIPT_DIR}/ifeval_generate_vllm.py" "${GEN_ARGS[@]}"
 
 pushd /root/google-research >/dev/null
 python -m instruction_following_eval.evaluation_main \

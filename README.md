@@ -348,17 +348,18 @@ PY
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3 \
 scripts/ifeval_eval_vllm.sh \
-  --model /root/aicloud-data/merged_models/Qwen2.5-7B-Instruct_verinstruct_RuscaRL_step350 \
-  --responses /root/google-research/instruction_following_eval/data/input_response_data_ruscarl_step350.jsonl
+  --model /data/haozy/merged_models/Qwen2.5Qwen2.5-7B-Instruct_verinstruct_RuscaRL_qwen3_32B_nothink_judge \
+  --input /home/haozy/google-research/instruction_following_eval/data/input_data.jsonl \
+  --responses /home/haozy/google-research/instruction_following_eval/data/input_response_data_ruscarl_step350.jsonl
 ```
 
-### 3) (Optional) Merge FSDP ckpt + Evaluate
+### 3) (Optional) Merge FSDP ckpt
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3 \
 scripts/ifeval_eval_vllm.sh \
-  --ckpt-dir /root/aicloud-data/checkpoints/Qwen2.5-7B-Instruct_verinstruct_RuscaRL/global_step_350/actor \
-  --merge-target /root/aicloud-data/merged_models/Qwen2.5-7B-Instruct_verinstruct_RuscaRL_step350
+  --ckpt-dir  /data/haozy/global_step_350/actor \
+  --merge-target /data/haozy/merged_models
 ```
 
 ### Outputs and Metric Mapping
