@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import re
 from typing import List
 
 from vllm import LLM, SamplingParams
@@ -15,6 +16,11 @@ def load_prompts(path: str) -> List[str]:
             obj = json.loads(line)
             prompts.append(obj["prompt"])
     return prompts
+
+
+def strip_think(text: str) -> str:
+    text = re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
+    return text.lstrip()
 
 
 def main() -> None:
@@ -32,8 +38,9 @@ def main() -> None:
     )
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--max-tokens", type=int, default=2048)
-    parser.add_argument("--temperature", type=float, default=0.0)
-    parser.add_argument("--top-p", type=float, default=1.0)
+    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--top-p", type=float, default=0.8)
+    parser.add_argument("--top-k", type=int, default=20)
     parser.add_argument("--tp-size", type=int, default=4)
     parser.add_argument("--max-model-len", type=int, default=8192)
     parser.add_argument("--gpu-mem-util", type=float, default=0.95)
@@ -79,6 +86,7 @@ def main() -> None:
     params = SamplingParams(
         temperature=args.temperature,
         top_p=args.top_p,
+        top_k=args.top_k,
         max_tokens=args.max_tokens,
     )
 
@@ -87,9 +95,10 @@ def main() -> None:
             chunk_prompts = vllm_prompts[i : i + args.batch_size]
             outputs = llm.generate(chunk_prompts, params)
             for j, o in enumerate(outputs):
+                response_text = strip_think(o.outputs[0].text)
                 out.write(
                     json.dumps(
-                        {"prompt": prompts[i + j], "response": o.outputs[0].text},
+                        {"prompt": prompts[i + j], "response": response_text},
                         ensure_ascii=False,
                     )
                     + "\n"

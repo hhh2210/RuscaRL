@@ -1,7 +1,7 @@
 #!/bin/bash
-
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 # Model configuration
-MODEL_PATH="model/Qwen2.5-7B-Instruct"
+MODEL_PATH="/data/MODEL/Qwen2.5-7B-Instruct"
 
 # Chat template (recommended for Qwen2.5): load from repo root at runtime.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,9 +9,12 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CHAT_TEMPLATE_PATH="${CHAT_TEMPLATE_PATH:-${REPO_ROOT}/chat_template.jinja}"
 
 # Experiment configuration
-EXPERIMENT_NAME="Qwen2.5-7B-Instruct_healthbench_RuscaRL"
+EXPERIMENT_NAME="Qwen2.5-7B-Instruct_healthbench_RuscaRL_Qwen3-32B-judge"
+OUTPUT_DIR="/data/haozy/${EXPERIMENT_NAME}"
+export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
-export WANDB_MODE=offline
+export WANDB_MODE=online
 set -x
 
 python3 -m verl.trainer.main_ppo \
@@ -41,7 +44,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=8 \
@@ -61,13 +64,14 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.use_kl_in_reward=False \
+    trainer.default_local_dir=${OUTPUT_DIR} \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','tensorboard'] \
+    trainer.logger=['console','wandb'] \
     trainer.project_name='verl_grpo_general' \
     trainer.experiment_name=${EXPERIMENT_NAME} \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
-    trainer.save_freq=20 \
+    trainer.save_freq=999999 \
     trainer.test_freq=5 \
     trainer.rollout_data_dir="./log/rollout_log/${EXPERIMENT_NAME}" \
     trainer.validation_data_dir="./log/validation_log/${EXPERIMENT_NAME}" \

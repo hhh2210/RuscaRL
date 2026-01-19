@@ -11,7 +11,7 @@ Supported sources:
 Input: eval JSONL with `responses.ypolicy_raw` filled.
 Output:
   - JSONL per-judge per-item scores
-  - Summary JSON with mean scores + pass rates
+  - Summary JSON with mean scores
 
 Judge config JSON example:
 [
@@ -192,8 +192,7 @@ def main() -> None:
             judge_sum: Dict[str, Any] = {"n": len(scores), "by_source": {}}
             for src, arr in by_src.items():
                 mean = sum(arr) / max(1, len(arr))
-                pass_rate = sum(1 for x in arr if x > 0.5) / max(1, len(arr))
-                judge_sum["by_source"][src] = {"n": len(arr), "mean": mean, "pass_rate@0.5": pass_rate}
+                judge_sum["by_source"][src] = {"n": len(arr), "mean": mean}
             summary["judges"][name] = judge_sum
 
     (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

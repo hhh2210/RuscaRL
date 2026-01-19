@@ -53,6 +53,13 @@ python -m verl.trainer.main_eval \
   custom_reward_function.path=health_bench/scaleai_batch_reward_fn.py \
   custom_reward_function.name=compute_score
 
+## local_Judge
+CUDA_VISIBLE_DEVICES=0,1,2,3 vllm serve /data/MODEL/Qwen3-32B \
+    --tensor-parallel-size 4 \
+    --served-model-name "Qwen/Qwen3-32B" \
+    --port 8000 \
+    --gpu-memory-utilization 0.9      
+
 ### RuscaRL:
 bash RuscaRL_example/Qwen2.5-7B-Instruct/verinstruct_eval_ckpt.sh /root/aicloud-data/checkpoints/Qwen2.5-7B-Instruct_verinstruct_RuscaRL/global_step_350/actor
 
